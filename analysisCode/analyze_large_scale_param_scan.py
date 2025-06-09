@@ -377,7 +377,7 @@ import random
 warnings.filterwarnings('ignore')
 
 # Configuration
-N_JOBS = 10
+N_JOBS = 30
 BATCH_SIZE = 500
 SAVE_INTERVAL = 500  # Save every 1000 rows
 
@@ -714,9 +714,15 @@ def main_two_populations(path_folder_regulation, output_prefix, n_pairs=25000):
     
     # Generate file pairs (your existing logic)
     list_pairs_of_files = generate_file_pairs(list_of_files_regulation, n_pairs)
-    
+    # current_calculated_pairs = pd.read_csv("/home/mzo5929/Keerthana/grnInference/analysisData2/large_scale_parameter_scan/correlation_df_large_scale_parameter_scan_two_population_no_regulation.csv")
     print(f"Generated {len(list_pairs_of_files)} file pairs to process.")
-    
+    # for pair in list_pairs_of_files:
+    #     index_1 = int(pair[0].split('regulation_')[1].replace('.csv', ''))
+    #     index_2 = int(pair[1].split('regulation_')[1].replace('.csv', ''))
+    #     if ((index_1, index_2) in zip(current_calculated_pairs['parameter_index_1'], current_calculated_pairs['parameter_index_2'])) or \
+    #        ((index_2, index_1) in zip(current_calculated_pairs['parameter_index_1'], current_calculated_pairs['parameter_index_2'])):
+    #         list_pairs_of_files.remove(pair)
+    print(f"After filtering, {len(list_pairs_of_files)} pairs remain to process.")
     # Separate result lists
     all_correlation_results = []
     all_cross_correlation_results = []
@@ -834,11 +840,13 @@ def main(path_folder_regulation, output_prefix):
 
 #%%
 # Example usage:
-main("/home/mzo5929/Keerthana/grnInference/simulationData/large_scale_parameter_scan/regulation/", "/home/mzo5929/Keerthana/grnInference/analysisData2/large_scale_parameter_scan/regulation/")
-main("/home/mzo5929/Keerthana/grnInference/simulationData/large_scale_parameter_scan/without_regulation/", "/home/mzo5929/Keerthana/grnInference/analysisData2/large_scale_parameter_scan/no_regulation/")
+# main("/home/mzo5929/Keerthana/grnInference/simulationData/large_scale_parameter_scan/regulation/", "/home/mzo5929/Keerthana/grnInference/analysisData2/large_scale_parameter_scan/regulation/")
+# main("/home/mzo5929/Keerthana/grnInference/simulationData/large_scale_parameter_scan/without_regulation/", "/home/mzo5929/Keerthana/grnInference/analysisData2/large_scale_parameter_scan/no_regulation/")
 
-#%%
-main("/home/mzo5929/Keerthana/grnInference/simulationData/large_scale_parameter_scan/modified_regulation/", "/home/mzo5929/Keerthana/grnInference/analysisData2/large_scale_parameter_scan/modified_regulation/")
+# #%%
+# main("/home/mzo5929/Keerthana/grnInference/simulationData/large_scale_parameter_scan/modified_regulation/", "/home/mzo5929/Keerthana/grnInference/analysisData2/large_scale_parameter_scan/modified_regulation/")
 
+# #%%
+# main_two_populations("/home/mzo5929/Keerthana/grnInference/simulationData/large_scale_parameter_scan/without_regulation/","/home/mzo5929/Keerthana/grnInference/analysisData2/large_scale_parameter_scan/two_population_no_regulation/" )
 #%%
-main_two_populations("/home/mzo5929/Keerthana/grnInference/simulationData/large_scale_parameter_scan/without_regulation/","/home/mzo5929/Keerthana/grnInference/analysisData2/large_scale_parameter_scan/two_population_no_regulation/" )
+main_two_populations("/home/mzo5929/Keerthana/grnInference/simulationData/large_scale_parameter_scan/regulation/","/home/mzo5929/Keerthana/grnInference/analysisData2/large_scale_parameter_scan/two_population_regulation/" )

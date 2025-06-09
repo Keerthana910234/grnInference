@@ -1,20 +1,19 @@
 #!/bin/bash
-#SBATCH --account=p31666
-#SBATCH --partition=normal
+#SBATCH --account=b1042
+#SBATCH --partition=genomics
 #SBATCH --nodes=1
 #SBATCH --ntasks=35
-#SBATCH --mem=50GB
+#SBATCH --mem=30GB
 #SBATCH --time=12:00:00
-#SBATCH --job-name=Parameter-Analysis
+#SBATCH --job-name=Two-way-regulation
 #SBATCH --output=/home/mzo5929/Keerthana/grnInference/logs/slurmLog-%A-%x.out
 #SBATCH --error=/home/mzo5929/Keerthana/grnInference/logs/slurmLog-%A-%x.err
-
+#SBATCH --array=0-9
 
 module purge
 # eval "$(conda shell.bash hook)"
 # conda activate grnSimulationQuest
 source /home/mzo5929/Keerthana/grnInference/code/.venv/bin/activate
-# start_index=$((5000 * SLURM_ARRAY_TASK_ID))
-start_index=0
-
-python3 /home/mzo5929/Keerthana/grnInference/code/grnInferenceRepo/analysisCode/analyze_large_scale_param_scan.py
+start_index=$((2500 * SLURM_ARRAY_TASK_ID))
+# start_index=0
+python /home/mzo5929/Keerthana/grnInference/code/grnInferenceRepo/simulationScripts/run_simulator_variations.py $start_index

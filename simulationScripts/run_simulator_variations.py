@@ -6,7 +6,7 @@ import sys
 import json
 from stochastic_bursting_simulator import simulate
 from stochastic_bursting_simulator_variations import simulate_asynchronous
-from stochastic_bursting_simulator_variations import simulate_both_TF
+from stochastic_bursting_simulator_variations import simulate_both_TF, simulate_self_regulation
 from multiprocessing import Pool
 import multiprocessing
 from time import sleep
@@ -166,8 +166,9 @@ def get_param_dict(path_param_csv):
 def caller(args_list):
     args, filename = args_list
     # all_samples = simulate_asynchronous(**args)
-    all_samples = simulate_both_TF(**args)
+    # all_samples = simulate_both_TF(**args)
     # all_samples = simulate(**args)
+    all_samples = simulate_self_regulation(**args)
     all_samples.to_csv(filename)
 
 if __name__ == '__main__':
@@ -178,21 +179,53 @@ if __name__ == '__main__':
     startIndex = int(sys.argv[1])
     # this_param_quartile_args = params_median.copy()
 
-    output_folder = "/home/mzo5929/Keerthana/grnInference/simulationData/two_way_regulation/test/"
-    param_args_list = [params_median_both_TF]
-    args_list = [(param_args_list[0], os.path.join(output_folder, f"samples_replicates_with_regulation_{startIndex}.csv"))]
+    output_folder = "/home/mzo5929/Keerthana/grnInference/simulationData/large_scale_parameter_scan/two_way_regulation/"
+    # param_args_list = [params_median_both_TF]
+    # args_list = [(param_args_list[0], os.path.join(output_folder, f"samples_replicates_with_regulation_{startIndex}.csv"))]
+    ################################################################################################################################################
+    # To generate parameter variations for asynchronous divisions
     # param_args_list = []
     # for variation in np.linspace(0.001, 0.01, 10):
     #     param = params_median.copy()
     #     param['sigma'] = variation
     #     param_args_list.append(param)
-    if not os.path.exists(output_folder):
-        os.makedirs(output_folder, exist_ok=True)
+    # if not os.path.exists(output_folder):
+    #     os.makedirs(output_folder, exist_ok=True)
     # for index, param_run in enumerate(param_args_list):
     #     if index < startIndex:
     #         continue
     #     args_list.append((param_run, os.path.join(output_folder, f"samples_replicates_with_regulation_{index}.csv")))
-    # loop over list of parameters
+    # # loop over list of parameters
     # with multiprocessing.Pool(processes=32) as pool:
     #     pool.map(caller, args_list)
-caller([param_args_list[0], os.path.join(output_folder, f"samples_replicates_with_regulation_{startIndex}.csv")])
+    ################################################################################################################################################
+    # To generate parameter variations for two-way regulation
+    # param_csv_path  = "/home/mzo5929/Keerthana/grnInference/simulationData/parameters_25000_both_TF.csv"
+    # param_args_list = get_param_dict(param_csv_path)
+    # if not os.path.exists(output_folder):
+    #     os.makedirs(output_folder, exist_ok=True)
+    # for index, param_run in enumerate(param_args_list):
+    #     if index < startIndex:
+    #         continue
+    #     args_list.append((param_run, os.path.join(output_folder, f"samples_replicates_with_regulation_two_way_regulation_{index}.csv")))
+    # # loop over list of parameters
+    # batch_size = 32
+    # total_items = len(args_list)
+    # print(f"Total items to process: {total_items}")
+    # for start_idx in range(0, total_items, batch_size):
+    #     end_idx = min(start_idx + batch_size, total_items)
+    #     current_batch = args_list[start_idx:end_idx]
+        
+        
+    #     with multiprocessing.Pool(processes=10) as pool:
+    #         pool.map(caller, current_batch)
+    # caller([param_args_list[0], os.path.join(output_folder, f"samples_replicates_with_regulation_{startIndex}.csv")])
+###############################################################################################################################################
+    #Simulate self regulation
+    output_folder = "/home/mzo5929/Keerthana/grnInference/simulationData/self_regulation/"
+    if not os.path.exists(output_folder):
+        os.makedirs(output_folder, exist_ok=True)
+    param_args_list = [params_median_both_TF]
+    caller([param_args_list[0], os.path.join(output_folder, f"samples_replicates_with_regulation_{startIndex}.csv")])
+
+    
