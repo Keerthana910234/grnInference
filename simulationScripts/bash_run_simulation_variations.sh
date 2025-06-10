@@ -10,6 +10,7 @@
 #SBATCH --error=/home/mzo5929/Keerthana/grnInference/logs/slurmLog-%A-%x.err
 #SBATCH --array=0-9
 
+#module purge is to prevent unnecessary modules from interfering with code
 module purge
 # eval "$(conda shell.bash hook)"
 # conda activate grnSimulationQuest
