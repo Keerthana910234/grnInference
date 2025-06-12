@@ -617,8 +617,9 @@ def get_new_state_self_regulation(in_pulse=None,
     ################################################################################
     #Regulation effects - self-regulation for TF and Target is regulated by TF
     # k_on_Target_adjusted = k_on_Target * 1
-    k_on_Target_adjusted = k_on_Target * (1 + TF_Target_link_function(TF_protein_1K, TF_Target_link_EC50, n, 16))
-    k_on_TF_adjusted = k_on_TF* (1 + TF_Target_link_function(TF_protein_1K, TF_Target_link_EC50, n, 16))
+    k_on_Target_adjusted = k_on_Target * (1 + TF_Target_link_function(TF_protein_1K, TF_Target_link_EC50, n, 16) + TF_Target_link_function(Target_protein_1K, Target_TF_link_EC50, n, 16))
+    k_on_TF_adjusted = k_on_TF* (1)
+    # k_on_TF_adjusted = k_on_TF* (1 + TF_Target_link_function(TF_protein_1K, TF_Target_link_EC50, n, 16))
     
     Target_should_switch_off = Target_is_bursting & (np.random.exponential(1 / k_off_Target, num_cells) < t)
     Target_should_switch_on = (~ Target_is_bursting) & (np.random.exponential(1 / k_on_Target_adjusted, num_cells) < t)
@@ -671,58 +672,141 @@ def burn_in_TF_concentration_self_regulation(constants, num_cells=500, mean_TF_p
             state = get_new_state_self_regulation(**state, **constants)
     return state['TF_protein_1K'].mean(), state['TF_protein_1K'].std(), state['Target_protein_1K'].mean(), state['Target_protein_1K'].std()
 
-def get_average_numbers_self_regulation(
+# def get_average_numbers_self_regulation(
+#     k_on_TF, k_off_TF, TF_transcription_rate, TF_mRNA_degradation_rate, 
+#     splicing_rate, TF_protein_production_rate, TF_protein_degradation_rate,
+#     k_on_Target, k_off_Target, Target_transcription_rate, Target_mRNA_degradation_rate, 
+#     Target_protein_production_rate, Target_protein_degradation_rate,
+#     max_effect=16.0, TF_hill=0.5, **kwargs
+# ):
+#     """
+#     Calculate steady state for system where:
+#     - TF regulates itself (self-regulation)
+#     - TF regulates Target 
+#     - Hill function = 0.5 at steady state (EC50 normalization)
+    
+#     Returns steady-state protein levels for TF and Target
+#     """
+    
+#     def steady_state_equations(TF_p_ss):
+#         """
+#         System of equations to solve for TF steady state.
+#         At steady state, Hill function = 0.5 by design.
+#         """
+        
+#         # TF self-regulation: Hill function = 0.5 at steady state
+#         k_TF_eff = k_on_TF *(1+ max_effect * TF_hill)  # TF_hill = 0.5
+#         b_TF = k_TF_eff / (k_TF_eff + k_off_TF)
+        
+#         # Calculate what TF protein level should be given this burst fraction
+#         TF_u_ss = (TF_transcription_rate * b_TF) / (TF_mRNA_degradation_rate + splicing_rate)
+#         TF_s_ss = (TF_u_ss * splicing_rate) / TF_mRNA_degradation_rate
+#         TF_p_predicted = (TF_s_ss * TF_protein_production_rate) / TF_protein_degradation_rate
+        
+#         # This should equal our input TF_p_ss for self-consistency
+#         return TF_p_predicted - TF_p_ss
+    
+#     # Solve for self-consistent TF protein level
+#     TF_p_ss = fsolve(steady_state_equations, 1.0)[0]
+    
+#     # Now calculate Target steady state (regulated by TF)
+#     # Target is regulated by TF protein level
+#     k_Target_eff = k_on_Target *(1 + max_effect * TF_hill)  # Same Hill value (0.5)
+#     b_Target = k_Target_eff / (k_Target_eff + k_off_Target)
+    
+#     # Target steady states
+#     Target_u_ss = (Target_transcription_rate * b_Target) / (Target_mRNA_degradation_rate + splicing_rate)
+#     Target_s_ss = (Target_u_ss * splicing_rate) / Target_mRNA_degradation_rate
+#     Target_p_ss = (Target_s_ss * Target_protein_production_rate) / Target_protein_degradation_rate
+    
+#     # Recalculate TF intermediates for completeness
+#     k_TF_eff = k_on_TF *(1+ max_effect * TF_hill)
+#     b_TF = k_TF_eff / (k_TF_eff + k_off_TF)
+#     TF_u_ss = (TF_transcription_rate * b_TF) / (TF_mRNA_degradation_rate + splicing_rate)
+#     TF_s_ss = (TF_u_ss * splicing_rate) / TF_mRNA_degradation_rate
+    
+#     return {
+#         'average_protein_TF': TF_p_ss,
+#         'average_protein_Target': Target_p_ss,
+#     }
+
+def get_average_numbers_self_loop_regulation(
     k_on_TF, k_off_TF, TF_transcription_rate, TF_mRNA_degradation_rate, 
     splicing_rate, TF_protein_production_rate, TF_protein_degradation_rate,
     k_on_Target, k_off_Target, Target_transcription_rate, Target_mRNA_degradation_rate, 
     Target_protein_production_rate, Target_protein_degradation_rate,
-    max_effect=16.0, TF_hill=0.5, **kwargs
+    max_effect=16.0, TF_hill=0.5, Target_hill=0.5, **kwargs
 ):
     """
     Calculate steady state for system where:
-    - TF regulates itself (self-regulation)
+    - TF has no regulation (constitutive)
     - TF regulates Target 
-    - Hill function = 0.5 at steady state (EC50 normalization)
+    - Target regulates itself (self-loop)
+    - Hill functions = 0.5 at steady state (EC50 normalization)
     
     Returns steady-state protein levels for TF and Target
     """
+    from scipy.optimize import fsolve
     
-    def steady_state_equations(TF_p_ss):
+    def steady_state_equations(protein_levels):
         """
-        System of equations to solve for TF steady state.
-        At steady state, Hill function = 0.5 by design.
+        System of equations to solve for both TF and Target steady states.
+        protein_levels = [TF_p_ss, Target_p_ss]
         """
+        TF_p_ss, Target_p_ss = protein_levels
         
-        # TF self-regulation: Hill function = 0.5 at steady state
-        k_TF_eff = k_on_TF *(1+ max_effect * TF_hill)  # TF_hill = 0.5
-        b_TF = k_TF_eff / (k_TF_eff + k_off_TF)
-        
-        # Calculate what TF protein level should be given this burst fraction
+        # === TF (no regulation - constitutive) ===
+        b_TF = k_on_TF / (k_on_TF + k_off_TF)
         TF_u_ss = (TF_transcription_rate * b_TF) / (TF_mRNA_degradation_rate + splicing_rate)
         TF_s_ss = (TF_u_ss * splicing_rate) / TF_mRNA_degradation_rate
         TF_p_predicted = (TF_s_ss * TF_protein_production_rate) / TF_protein_degradation_rate
         
-        # This should equal our input TF_p_ss for self-consistency
-        return TF_p_predicted - TF_p_ss
+        # === Target (regulated by TF + self-regulation) ===
+        # Regulatory effects: TF→Target + Target→Target (self-loop)
+        TF_effect = max_effect * TF_hill      # TF regulation effect (fixed at 0.5)
+        Target_effect = max_effect * Target_hill  # Self-regulation effect (fixed at 0.5)
+        
+        # Combined regulatory effect
+        total_regulatory_effect = TF_effect + Target_effect
+        
+        # Effective k_on for Target
+        k_Target_eff = k_on_Target * (1 + total_regulatory_effect)
+        b_Target = k_Target_eff / (k_Target_eff + k_off_Target)
+        
+        # Target steady states
+        Target_u_ss = (Target_transcription_rate * b_Target) / (Target_mRNA_degradation_rate + splicing_rate)
+        Target_s_ss = (Target_u_ss * splicing_rate) / Target_mRNA_degradation_rate
+        Target_p_predicted = (Target_s_ss * Target_protein_production_rate) / Target_protein_degradation_rate
+        
+        # Return equations (should be zero at steady state)
+        return [
+            TF_p_predicted - TF_p_ss,        # TF equation
+            Target_p_predicted - Target_p_ss  # Target equation
+        ]
     
-    # Solve for self-consistent TF protein level
-    TF_p_ss = fsolve(steady_state_equations, 1.0)[0]
+    # Solve the coupled system
+    # Initial guess: simple steady states without regulation
+    TF_initial = (TF_transcription_rate * k_on_TF / (k_on_TF + k_off_TF) * 
+                  splicing_rate / (TF_mRNA_degradation_rate + splicing_rate) / 
+                  TF_mRNA_degradation_rate * TF_protein_production_rate / TF_protein_degradation_rate)
     
-    # Now calculate Target steady state (regulated by TF)
-    # Target is regulated by TF protein level
-    k_Target_eff = k_on_Target *(1 + max_effect * TF_hill)  # Same Hill value (0.5)
-    b_Target = k_Target_eff / (k_Target_eff + k_off_Target)
+    Target_initial = (Target_transcription_rate * k_on_Target / (k_on_Target + k_off_Target) * 
+                      splicing_rate / (Target_mRNA_degradation_rate + splicing_rate) / 
+                      Target_mRNA_degradation_rate * Target_protein_production_rate / Target_protein_degradation_rate)
     
-    # Target steady states
-    Target_u_ss = (Target_transcription_rate * b_Target) / (Target_mRNA_degradation_rate + splicing_rate)
-    Target_s_ss = (Target_u_ss * splicing_rate) / Target_mRNA_degradation_rate
-    Target_p_ss = (Target_s_ss * Target_protein_production_rate) / Target_protein_degradation_rate
+    initial_guess = [TF_initial, Target_initial]
     
-    # Recalculate TF intermediates for completeness
-    k_TF_eff = k_on_TF *(1+ max_effect * TF_hill)
-    b_TF = k_TF_eff / (k_TF_eff + k_off_TF)
-    TF_u_ss = (TF_transcription_rate * b_TF) / (TF_mRNA_degradation_rate + splicing_rate)
-    TF_s_ss = (TF_u_ss * splicing_rate) / TF_mRNA_degradation_rate
+    try:
+        solution = fsolve(steady_state_equations, initial_guess)
+        TF_p_ss, Target_p_ss = solution
+        
+        # Ensure positive values
+        TF_p_ss = max(TF_p_ss, 0.1)
+        Target_p_ss = max(Target_p_ss, 0.1)
+        
+    except Exception as e:
+        print(f"Failed to solve steady state: {e}")
+        TF_p_ss, Target_p_ss = initial_guess
     
     return {
         'average_protein_TF': TF_p_ss,
@@ -760,13 +844,15 @@ def simulate_self_regulation(**sim_args):
         del constants[unused]
 
     # Find TF mean through calculation
-    averages = get_average_numbers_self_regulation(**constants)
+    # averages = get_average_numbers_self_regulation(**constants)
+    averages = get_average_numbers_self_loop_regulation(**constants)
     average_protein_TF = averages['average_protein_TF']
     average_protein_Target = averages['average_protein_Target']
 
     #TF regulates both itself and target
+    #TF and Target regulate each other
     constants['TF_Target_link_EC50'] = MM_TF_link(average_protein_TF, sim_args['n'], 16)
-    constants['Target_TF_link_EC50'] = MM_TF_link(average_protein_TF, sim_args['n'], 16) 
+    constants['Target_TF_link_EC50'] = MM_TF_link(average_protein_Target, sim_args['n'], 16) 
     
     # burn in TF concentrations for variance
     print("burning in")

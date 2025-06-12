@@ -96,7 +96,29 @@ params_median_both_TF = {
     'k_on_Target': 0.25,
     'k_off_Target': 7.7,
     'burst_size_Target': 40,
-    'splicing_half_life_minutes': 1,
+    'splicing_half_life_minutes': 7,
+    'mrna_half_life_TF': 2.5,
+    'mrna_half_life_Target': 3.7,
+    'TF_protein_half_life': 28,
+    'Target_protein_half_life': 28,
+    'TF_protein_production_rate': 0.059,
+    'Target_protein_production_rate': 0.059,
+    'n': 2,
+    'labeling_efficiency': 1,
+    'pulse_time': 60,
+    'num_cells': 20_000,
+    'dynamics': 'MM',
+    'capture_efficiency': 1
+}
+
+params_median_extreme_ends = {
+    'k_on_TF': 0.13,
+    'k_off_TF': 8.4,
+    'burst_size_TF': 32,
+    'k_on_Target': 0.47,
+    'k_off_Target': 7.7,
+    'burst_size_Target': 40,
+    'splicing_half_life_minutes': 7,
     'mrna_half_life_TF': 2.5,
     'mrna_half_life_Target': 3.7,
     'TF_protein_half_life': 28,
@@ -225,7 +247,8 @@ if __name__ == '__main__':
     output_folder = "/home/mzo5929/Keerthana/grnInference/simulationData/self_regulation/"
     if not os.path.exists(output_folder):
         os.makedirs(output_folder, exist_ok=True)
-    param_args_list = [params_median_both_TF]
-    caller([param_args_list[0], os.path.join(output_folder, f"samples_replicates_with_regulation_{startIndex}.csv")])
+    param_args_list = [params_median_extreme_ends]
+    startIndex = 1
+    caller([param_args_list[0], os.path.join(output_folder, f"A_B_Bloops_{startIndex}.csv")])
 
     
