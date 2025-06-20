@@ -85,6 +85,7 @@ def get_new_state(in_pulse=None,
                   mRNA_ever_produced_TF=None,
                   protein_ever_produced_TF=None,
                   n=None,
+                  r_add = None, 
                   t=1 / 60):
     #t = 1/60 since all rates are in hours
     #####################################
@@ -183,7 +184,8 @@ def get_new_state(in_pulse=None,
     ################################################################################
     # k_on_Target_adjusted = k_on_Target * 1
     # k_on_Target_adjusted = k_on_Target*(TF_Target_link_function(TF_protein_1K, TF_Target_link_EC50, n, 16))
-    k_on_Target_adjusted = k_on_Target*(1 + TF_Target_link_function(TF_protein_1K, TF_Target_link_EC50, n, 16))
+    # k_on_Target_adjusted = k_on_Target*(1 + TF_Target_link_function(TF_protein_1K, TF_Target_link_EC50, n, 16))
+    k_on_Target_adjusted = k_on_Target + TF_Target_link_function(TF_protein_1K, TF_Target_link_EC50, n, r_add)
     
     Target_should_switch_off = Target_is_bursting & (np.random.exponential(1 / k_off_Target, num_cells) < t)
     Target_should_switch_on = (~ Target_is_bursting) & (np.random.exponential(1 / k_on_Target_adjusted, num_cells) < t)
@@ -313,7 +315,7 @@ def simulate(**sim_args):
     state = generate_random_cells(TF_protein_mean, num_cells=num_cells)
     initial_TF = state['TF_protein_1K']
 
-    constants['TF_Target_link_EC50'] = MM_TF_link(TF_protein_mean, sim_args['n'], 16)
+    constants['TF_Target_link_EC50'] = MM_TF_link(TF_protein_mean, constants['n'], constants['r_add'])
     
     samples = {}
     samplesReplicate = {}

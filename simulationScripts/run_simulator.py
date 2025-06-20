@@ -132,11 +132,11 @@ if __name__ == '__main__':
     startIndex = int(sys.argv[1])
     # this_param_quartile_args = params_median.copy()
 
-    output_folder = "/home/mzo5929/Keerthana/grnInference/simulationData/large_scale_parameter_scan/modified_regulation/"
+    output_folder = "/home/mzo5929/Keerthana/grnInference/simulationData/large_scale_parameter_scan/radd_decoupled_from_kon_saturation/"
     import os
     # param_interested_list = [16863, 22932, 15282, 12925, 18338, 21675, 19196, 15793, 24105, 18400, 2252, 11941, 32, 11783, 13505]
     # param_args_list = [params_median, params_lower_quartile, params_upper_quartile]
-    path_param_csv = '/home/mzo5929/Keerthana/grnInference/simulationData/parameters_25000.csv'
+    path_param_csv = '/home/mzo5929/Keerthana/grnInference/simulationData/parameter_sweep_radd_k_on_target_potential_saturation.csv'
     # param_args_list = [params_median]
     # param_names = ["median", "lower_quartile", "upper_quartile"]
     # for param_name, this_param_quartile_args in zip(param_names, param_args_list):
@@ -155,7 +155,7 @@ if __name__ == '__main__':
     for index, param_run in enumerate(param_args_list):
         if index < startIndex:
             continue
-        args_list.append((param_run, os.path.join(output_folder, f"samples_replicates_with_regulation_modified_regulation_{index}.csv")))
+        args_list.append((param_run, os.path.join(output_folder, f"samples_replicates_with_modified_regulation_{index}.csv")))
     # loop over list of parameters
     batch_size = 32
     total_items = len(args_list)

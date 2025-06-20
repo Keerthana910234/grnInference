@@ -1,10 +1,10 @@
 #!/bin/bash
-#SBATCH --account=p31666
-#SBATCH --partition=normal
+#SBATCH --account=p32655
+#SBATCH --partition=short
 #SBATCH --nodes=1
 #SBATCH --ntasks=35
-#SBATCH --mem=50GB
-#SBATCH --time=12:00:00
+#SBATCH --mem=10GB
+#SBATCH --time=2:00:00
 #SBATCH --job-name=Parameter-Analysis
 #SBATCH --output=/home/mzo5929/Keerthana/grnInference/logs/slurmLog-%A-%x.out
 #SBATCH --error=/home/mzo5929/Keerthana/grnInference/logs/slurmLog-%A-%x.err

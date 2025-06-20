@@ -1,9 +1,9 @@
 #!/bin/bash
-#SBATCH --account=b1042
-#SBATCH --partition=genomics
+#SBATCH --account=p32655
+#SBATCH --partition=normal
 #SBATCH --nodes=1
 #SBATCH --ntasks=35
-#SBATCH --mem=30GB
+#SBATCH --mem=50GB
 #SBATCH --time=12:00:00
 #SBATCH --job-name=Two-way-regulation
 #SBATCH --output=/home/mzo5929/Keerthana/grnInference/logs/slurmLog-%A-%x.out

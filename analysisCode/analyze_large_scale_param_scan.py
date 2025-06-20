@@ -377,7 +377,7 @@ import random
 warnings.filterwarnings('ignore')
 
 # Configuration
-N_JOBS = 30
+N_JOBS = 24
 BATCH_SIZE = 500
 SAVE_INTERVAL = 500  # Save every 1000 rows
 
@@ -558,27 +558,14 @@ def process_simulation_stable(sim_info):
             engine='c',
             on_bad_lines='skip'
         )
-
-        if population.empty:
-            return None
-        if "modified_regulation_" in sim:
-            try:
-                param_index = sim.split('modified_regulation_')[1].replace('.csv', '')
-            except:
-                param_index = sim.replace('.csv', '')
-        else:
-            try:
-                param_index = sim.split('_regulation_')[1].replace('.csv', '')
-            except:
-                param_index = sim.replace('.csv', '')
+        param_index = sim.split('two_way_regulation_')[1].replace('.csv', '') if 'two_way_regulation_' in sim else 0
+        # print(f"Processing simulation: {sim}, Parameter index: {param_index}")
+        # print("123!!!")
         c1, c2, c3 = get_correlations_optimized(population, t1)
         c4, c5, c6 = get_correlations_optimized(population, t2)
-
-        del population
-        gc.collect()
-
-        return {
-            'parameter_index': param_index,
+        required_data = {}
+        correlation_data = {
+            'param_index': param_index,
             't1_gene_gene_correlation': c1,
             't1_twin_pair_correlation': c2,
             't1_random_pair_correlation': c3,
@@ -586,9 +573,18 @@ def process_simulation_stable(sim_info):
             't2_twin_pair_correlation': c5,
             't2_random_pair_correlation': c6,
         }
+        required_data['correlation_data'] = correlation_data
+        cross_correlation = get_cross_correlations(population, t1, t2)
+        cross_correlation['param_index'] = param_index
+        del population
+        required_data['cross_correlation'] = cross_correlation
+        gc.collect()
 
-    except:
+        return required_data
+    except Exception as e:
+        print(f"Error processing simulation: {e} in {sim}")
         return None
+
 
 def process_simulation_two_population(sim_info):
     sim1, sim2, path_to_folder, t1, t2 = sim_info
@@ -795,22 +791,25 @@ def main_two_populations(path_folder_regulation, output_prefix, n_pairs=25000):
 def main(path_folder_regulation, output_prefix):
     t1, t2 = 300, 600
     list_of_files_regulation = find_csv_files_fast(path_folder_regulation)
-    current_results = pd.read_csv("/home/mzo5929/Keerthana/grnInference/analysisData2/large_scale_parameter_scan/correlation_df_large_scale_parameter_scan_modified_regulation.csv")
-    update_list_of_files = []
-    for file in list_of_files_regulation:
-        index = int(file.split('modified_regulation_')[1].replace('.csv', ''))
-        if index not in current_results['parameter_index'].values:
-            update_list_of_files.append(file)
+    # current_results = pd.read_csv("/home/mzo5929/Keerthana/grnInference/analysisData2/large_scale_parameter_scan/correlation_df_large_scale_parameter_scan_modified_regulation.csv")
+    # update_list_of_files = []
+    # for file in list_of_files_regulation:
+    #     index = int(file.split('modified_regulation_')[1].replace('.csv', ''))
+    #     if index not in current_results['parameter_index'].values:
+    #         update_list_of_files.append(file)
+    update_list_of_files = list_of_files_regulation.copy()
     print(f"Found {len(update_list_of_files)} files to process out of {len(list_of_files_regulation)} total files.")
-    all_results = []
-    file_counter = 0
-    chunk_id = 0
+    all_correlation_results = []
+    all_cross_correlation_results = []
+    correlation_chunk_id = 0
+    cross_correlation_chunk_id = 0
+
     if not os.path.exists(output_prefix):
         os.makedirs(output_prefix, exist_ok=True)
+    
     for i in range(0, len(update_list_of_files), BATCH_SIZE):
         #Check if this parameter index has already been processed and is in current_results
 
-        chunk_file_path = f'{output_prefix}partial_{chunk_id:03d}.csv'
 
         print(f"Processing files {i} to {min(i + BATCH_SIZE, len(update_list_of_files))}...")
         chunk_files = update_list_of_files[i:i + BATCH_SIZE]
@@ -818,21 +817,53 @@ def main(path_folder_regulation, output_prefix):
             delayed(process_simulation_stable)((sim, path_folder_regulation, t1, t2))
             for sim in chunk_files
         )
-        print(f"Processed chunk {chunk_id + 1}: {len(chunk_results)} files")
         chunk_results = [res for res in chunk_results if res is not None]
-        all_results.extend(chunk_results)
+        correlation_batch = []
+        cross_correlation_batch = []
+        
+        for result in chunk_results:
+            if 'correlation_data' in result:
+                correlation_batch.append(result['correlation_data'])
+            
+            if 'cross_correlation' in result:
+                cross_correlation_batch.append(result['cross_correlation'])
+        
+        # Add to main result lists
+        all_correlation_results.extend(correlation_batch)
+        all_cross_correlation_results.extend(cross_correlation_batch)
 
-        if len(all_results) >= SAVE_INTERVAL:
-            df_save = pd.DataFrame(all_results)
-            df_save.to_csv(chunk_file_path, index=False)
-            chunk_id += 1
-            all_results.clear()
+
+        if len(all_correlation_results) >= SAVE_INTERVAL:
+            correlation_file_path = f'{output_prefix}correlation_partial_{correlation_chunk_id:03d}.csv'
+            correlation_df = pd.DataFrame(all_correlation_results)
+            correlation_df.to_csv(correlation_file_path, index=False)
+            print(f"Saved correlation chunk {correlation_chunk_id}: {len(all_correlation_results)} records")
+            correlation_chunk_id += 1
+            all_correlation_results.clear()
+        
+        # Save cross-correlation results if threshold reached
+        if len(all_cross_correlation_results) >= SAVE_INTERVAL:
+            cross_correlation_file_path = f'{output_prefix}cross_correlation_partial_{cross_correlation_chunk_id:03d}.csv'
+            cross_correlation_df = pd.DataFrame(all_cross_correlation_results)
+            cross_correlation_df.to_csv(cross_correlation_file_path, index=False)
+            print(f"Saved cross-correlation chunk {cross_correlation_chunk_id}: {len(all_cross_correlation_results)} records")
+            cross_correlation_chunk_id += 1
+            all_cross_correlation_results.clear()
 
     # Save remaining
-    if all_results:
-        chunk_file_path = f'{output_prefix}partial_{chunk_id:03d}.csv'
-        df_save = pd.DataFrame(all_results)
-        df_save.to_csv(chunk_file_path, index=False)
+    if all_correlation_results:
+        correlation_file_path = f'{output_prefix}correlation_partial_{correlation_chunk_id:03d}.csv'
+        correlation_df = pd.DataFrame(all_correlation_results)
+        correlation_df.to_csv(correlation_file_path, index=False)
+        print(f"Saved final correlation chunk {correlation_chunk_id}: {len(all_correlation_results)} records")
+    
+    # Save remaining cross-correlation results
+    if all_cross_correlation_results:
+        cross_correlation_file_path = f'{output_prefix}cross_correlation_partial_{cross_correlation_chunk_id:03d}.csv'
+        cross_correlation_df = pd.DataFrame(all_cross_correlation_results)
+        cross_correlation_df.to_csv(cross_correlation_file_path, index=False)
+        print(f"Saved final cross-correlation chunk {cross_correlation_chunk_id}: {len(all_cross_correlation_results)} records")
+    return 
 
 #%%
 #Analyze simulation with with 2 state populations and no regulation.
@@ -840,7 +871,7 @@ def main(path_folder_regulation, output_prefix):
 
 #%%
 # Example usage:
-# main("/home/mzo5929/Keerthana/grnInference/simulationData/large_scale_parameter_scan/regulation/", "/home/mzo5929/Keerthana/grnInference/analysisData2/large_scale_parameter_scan/regulation/")
+main("/home/mzo5929/Keerthana/grnInference/simulationData/large_scale_parameter_scan/two_way_regulation_new/", "/home/mzo5929/Keerthana/grnInference/analysisData2/large_scale_parameter_scan/two_way_regulation_new/")
 # main("/home/mzo5929/Keerthana/grnInference/simulationData/large_scale_parameter_scan/without_regulation/", "/home/mzo5929/Keerthana/grnInference/analysisData2/large_scale_parameter_scan/no_regulation/")
 
 # #%%
@@ -849,4 +880,4 @@ def main(path_folder_regulation, output_prefix):
 # #%%
 # main_two_populations("/home/mzo5929/Keerthana/grnInference/simulationData/large_scale_parameter_scan/without_regulation/","/home/mzo5929/Keerthana/grnInference/analysisData2/large_scale_parameter_scan/two_population_no_regulation/" )
 #%%
-main_two_populations("/home/mzo5929/Keerthana/grnInference/simulationData/large_scale_parameter_scan/regulation/","/home/mzo5929/Keerthana/grnInference/analysisData2/large_scale_parameter_scan/two_population_regulation/" )
+# main_two_populations("/home/mzo5929/Keerthana/grnInference/simulationData/large_scale_parameter_scan/regulation/","/home/mzo5929/Keerthana/grnInference/analysisData2/large_scale_parameter_scan/two_population_regulation/" )
