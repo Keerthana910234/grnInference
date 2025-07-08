@@ -13,7 +13,7 @@ from numba import prange, set_num_threads, get_num_threads
 from tqdm.auto import tqdm
 import time
 import concurrent.futures
-
+import argparse
 # %% Input utilities
 
 def read_input_matrix(path_to_matrix: str) -> (int, np.ndarray):
@@ -31,12 +31,15 @@ def read_input_matrix(path_to_matrix: str) -> (int, np.ndarray):
                           it is reshaped into a 1x1 array.
 
     Raises:
-        ValueError: If the file cannot be loaded or the data is not in the expected format.
+        ValueError: If the file cannot be loaded.
     """
-    matrix = np.loadtxt(path_to_matrix, dtype=int, delimiter=',')
-    if matrix.ndim == 0:
-        matrix = matrix.reshape((1,1))
-    return matrix.shape[0], matrix
+    try:
+        matrix = np.loadtxt(path_to_matrix, dtype=int, delimiter=',')
+        if matrix.ndim == 0:
+            matrix = matrix.reshape((1,1))
+        return matrix.shape[0], matrix
+    except Exception as e:
+        raise ValueError(f"Error loading matrix from {path_to_matrix}: {e}")
 
 def generate_reaction_network_from_matrix(interaction_matrix: np.ndarray):
     """
@@ -187,7 +190,10 @@ def assign_parameters_to_genes(csv_path, gene_list, rows=None):
             - param_matrix (pd.DataFrame): A DataFrame where rows correspond to 
                                            genes and columns correspond to parameter values.
     """
-    df = pd.read_csv(csv_path, index_col=0)
+    try:
+        df = pd.read_csv(csv_path, index_col=0)
+    except FileNotFoundError:
+        raise ValueError(f"Parameter csv file not found at path: {csv_path}")
     n = len(gene_list)
     if rows is None:
         rows = np.random.choice(df.index, size=n, replace=True)
@@ -212,6 +218,7 @@ def generate_k_from_steady_state_calc(param_dict, interaction_matrix, gene_list,
     """
     Calculate steady-state protein levels and assign rate constants (k values) 
     for gene interactions based on the provided parameters and interaction 
+
     Args:
         param_dict (dict): Dictionary containing parameters for gene regulation, 
             including burst probabilities, production rates, degradation rates, 
@@ -540,9 +547,6 @@ def simulate_cells_numba(update_propensities, update_matrix, pop0_mat, time_poin
 
 # %%
 # Check for steady state
-import numpy as np
-import argparse
-
 def is_steady_state(samples, time_points, mean_tol=0.05, std_tol=0.05,
                     slope_tol=0.05, window_frac=0.25, verbose=False):
     """
@@ -671,6 +675,7 @@ def process_param_set(rows, label, base_config):
     p_add_matrix = np.zeros((n_genes, n_genes))
     for i in range(n_genes):
         for j in range(n_genes):
+            #Check in the interaction matrix if the edge is a regulation ot not
             if mat[i, j] != 0:
                 edge = f"{gene_list[i]}_to_{gene_list[j]}"
                 n_matrix[i,j]     = param_dict.get(f"{{n_{edge}}}", 2.0)
@@ -679,6 +684,7 @@ def process_param_set(rows, label, base_config):
     steady_state, full_param_dict = add_interaction_terms(param_dict, mat, gene_list,
                                                           n_matrix=n_matrix,
                                                           p_add_matrix=p_add_matrix)
+
     pop0, update_matrix, update_prop, species_index = setup_gillespie_params_from_reactions(
         init_states, reactions_df, full_param_dict)
 
@@ -686,32 +692,14 @@ def process_param_set(rows, label, base_config):
     base_samples = run_simulation(update_prop, update_matrix, pop0, time_points, n_cells)
     if not is_steady_state(base_samples, time_points):
         print(f"⚠️ Base simulation (basal) for {label} not steady.")
-    #Checking for steady state
-    # means = base_samples.mean(axis=0)  # shape (n_time, n_species)
-    # stds = base_samples.std(axis=0)
-    # n_time = means.shape[0]
-    # window = min(100, n_time // 4)
-    # if window > 0:
-    #     last_mean = means[-window:]
-    #     prev_mean = means[-2*window:-window]
-    #     rel_change_mean = np.abs(last_mean.mean(axis=0) - prev_mean.mean(axis=0)) / (np.abs(prev_mean.mean(axis=0)) + 1e-9)
-    #     last_std = stds[-window:]
-    #     prev_std = stds[-2*window:-window]
-    #     rel_change_std = np.abs(last_std.mean(axis=0) - prev_std.mean(axis=0)) / (prev_std.mean(axis=0) + 1e-9)
-    #     stable = np.all(rel_change_mean < 0.01) and np.all(rel_change_std < 0.01)
-    # else:
-    #     stable = False
-    # if not stable:
-    #     print(f"⚠️ Base simulation (basal) for {label} not steady: max rel change mean {rel_change_mean.max():.3e}, std {rel_change_std.max():.3e}.\n")
-    # else:
-    #     print(f"✅ Base simulation (basal) for {label} reached steady state with mean {last_mean.mean(axis=0)} and std {last_std.mean(axis=0)}.\n")
-
-    # 2) Replicate and simulate for 48h
+    
+    # 2) Replicate into two to create daughter cells
     final_states = base_samples[:, -1, :]
     rep_time = np.arange(0, 48, 1)
     pop0_rep = np.concatenate([final_states.T, final_states.T], axis=1)
     rep_samples = simulate_cells_numba(update_prop, update_matrix, pop0_rep, rep_time, np.zeros(2*n_cells, dtype=np.int64))
-    # 3) Extract and label
+    
+    # 3) Extract from simulation and label
     df_rep = extract_mrna_protein_fast(rep_samples, species_index)
     n_total = 2 * n_cells
     replicate_ids = np.repeat([1, 2], n_cells)
@@ -720,9 +708,10 @@ def process_param_set(rows, label, base_config):
     df_rep['replicate'] = replicate_ids[df_rep['cell_id']]
     df_rep['clone_id'] = clone_ids[df_rep['cell_id']]
     df_rep['cell_id'] = df_rep.index // len(rep_time)  # optional: restore per-cell unique index
+    
+    # 4) Save
     timestamp = datetime.now().strftime("%d%m%Y_%H%M%S")
     id = uuid.uuid4().hex[:8]
-    # 4) Save
     prefix = f"{label}_{timestamp}_ncells_{n_cells}_{base_config['type']}_{id}"
     df_rep.to_csv(f"{base_config['output_folder']}/df_{prefix}.csv", index=False)
     np.savetxt(f"{base_config['output_folder']}/samples_{prefix}.csv", rep_samples.reshape(2*n_cells, -1), delimiter=",")
@@ -734,21 +723,25 @@ def process_param_set(rows, label, base_config):
         "param_dict": full_param_dict,
         "steady_state": steady_state.tolist()
     }
-    with open({base_config['log_file']},"a") as f:
+    os.makedirs(os.path.dirname(base_config['log_file']), exist_ok=True)
+    with open(base_config['log_file'],"a") as f:
         f.write(json.dumps(record) + "\n")
     return prefix
 
 #%%
 # --- Main execution with parallel parameter sets ---
 if __name__ == "__main__":
-    # Base configuration
+    # Base configuration - the commented out lines can be used instead of providing arguments to the file (e.g. if using it as ipynb notebook)
     base_config = {
+        'time_points':    np.arange(0, 800, 1), #Time to reach steady state
+        'n_cells':        10000 #Before division
         # "path_to_matrix":  "/home/mzo5929/Keerthana/grnInference/simulation_data/general_simulation_data/test_data/matrix101.txt",
         # "param_csv":      "/home/mzo5929/Keerthana/grnInference/simulation_data/gillespie_simulation/sim_details/lhc_sampled_parameters_positive_reg.csv",
-        # 'p_add_matrix':   np.array([[0.0,2.0],[0,0]]),
-        # 'n_matrix':       np.array([[0.0,4.41],[0,0]]),
-        'time_points':    np.arange(0, 800, 1),
-        'n_cells':        10000
+        # "row_to_start":      0,
+        # "output_folder":      "/path/to/save/saimulation/output",
+        # "log_file":      "/path/to/log.jsonl",
+        # "type":      "A_to_B",
+        # 
     }
     # Define 4 parameter sets (rows) and labels
     # Parse command-line arguments
@@ -764,13 +757,14 @@ if __name__ == "__main__":
     # Update base configuration with parsed arguments
     base_config["path_to_matrix"] = args.matrix_path
     base_config["param_csv"] = args.param_csv
-    base_config["row_to_start"] = args.row_to_start
+    base_config["row_to_start"] = int(args.row_to_start)
     base_config["output_folder"] = args.output_folder
     base_config["log_file"] = args.log_file
     base_config["type"] = args.type
 
     df = pd.read_csv(base_config['param_csv'])
-    row_list = [[i, i+1] for i in range(0, len(df), 2)]
+    #This simulation will run the rows from the row_to_start till the end (useful to batch across multiple runs)
+    row_list = [[i, i+1] for i in range(base_config["row_to_start"], len(df), 2)]
     labels = [f"row_{i}_{i+1}" for i in range( base_config["row_to_start"], len(df), 2)]
     param_sets = list(zip(row_list, labels))
     # Use 32 cores split into 4 workers (8 threads each)
