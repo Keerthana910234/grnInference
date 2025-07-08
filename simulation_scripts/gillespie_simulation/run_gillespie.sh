@@ -19,7 +19,7 @@ path_to_parameter="/home/mzo5929/Keerthana/grnInference/simulation_data/gillespi
 path_to_interaction_matrix="/home/mzo5929/Keerthana/grnInference/simulation_data/gillespie_simulation/sim_details/interaction_matrix_positive.txt"
 
 # Run Python script with matching CLI arguments
-python /home/mzo5929/Keerthana/grnInference/code/grnInferenceRepo/simulationScripts/gillespie_simulation/gillespie_script.py \
+python /home/mzo5929/Keerthana/grnInference/code/grnInferenceRepo/simulation_scripts/gillespie_simulation/gillespie_script.py \
     --matrix_path "$path_to_interaction_matrix" \
     --param_csv "$path_to_parameter" \
     --row_to_start "$start_index"\

@@ -4,14 +4,10 @@
 *.log
 *.nbi
 *.zst
-*.csv
-*.gml
 *.pkl
 *.pkl.zst
 *.gz*
 *.html
-*.xlsx
-*.tsv
 *.err
 *.out
 # Ignore all directories that are git repositories
@@ -23,18 +19,15 @@
 # Ignore specific file patterns
 .nbc
 *.js
-*.png
 *.rds
 *.npy
 /__pycache__/
 *.nbi
 *.zst
-*.csv
 *.gml
 *.pkl
 *.pkl.zst
 *.html
-*.xlsx
 .nbc
 **core.**
 .Rprofile
