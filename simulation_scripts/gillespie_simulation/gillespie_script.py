@@ -733,7 +733,7 @@ def process_param_set(rows, label, base_config):
 if __name__ == "__main__":
     # Base configuration - the commented out lines can be used instead of providing arguments to the file (e.g. if using it as ipynb notebook)
     base_config = {
-        'time_points':    np.arange(0, 800, 1), #Time to reach steady state
+        'time_points':    np.arange(0, 2500, 1), #Time to reach steady state
         'n_cells':        10000 #Before division
         # "path_to_matrix":  "/home/mzo5929/Keerthana/grnInference/simulation_data/general_simulation_data/test_data/matrix101.txt",
         # "param_csv":      "/home/mzo5929/Keerthana/grnInference/simulation_data/gillespie_simulation/sim_details/lhc_sampled_parameters_positive_reg.csv",
