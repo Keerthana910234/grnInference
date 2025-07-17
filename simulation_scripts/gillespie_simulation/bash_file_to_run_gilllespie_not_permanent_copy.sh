@@ -10,4 +10,5 @@
 #SBATCH --error=/home/mzo5929/Keerthana/grnInference/logs/slurmLog-%A-%x.err
 
 source /home/mzo5929/Keerthana/grnInference/code/.venv/bin/activate
-python /home/mzo5929/Keerthana/grnInference/code/grnInferenceRepo/simulation_scripts/gillespie_simulation/gillespie_script_copy_copy_copy.py
+python /home/mzo5929/Keerthana/grnInference/code/grnInferenceRepo/simulation_scripts/gillespie_simulation/gillespie_script_copy_copy.py
+

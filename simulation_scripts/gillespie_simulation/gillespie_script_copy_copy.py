@@ -669,7 +669,7 @@ def process_param_set(rows, label, base_config):
     # n_matrix       = base_config['n_matrix']
     time_points    = base_config['time_points']
     n_cells        = base_config['n_cells']
-
+    print(rows)
     # Build reactions and parameters for this row set
     n_genes, mat = read_input_matrix(path_to_matrix)
     reactions_df, gene_list = generate_reaction_network_from_matrix(mat)
@@ -735,66 +735,255 @@ def process_param_set(rows, label, base_config):
         f.write(json.dumps(record) + "\n")
     return prefix
 
+
+
 #%%
 # --- Main execution with parallel parameter sets ---
+#%%
+import os
+import numpy as np
+import pandas as pd
+import concurrent.futures
+from tqdm import tqdm
+
+root = "/projects/b1042/GoyalLab/Keerthana/"
+
+def run_iteration(i, config, param_sets):
+    results = []
+    print(param_sets)
+    for rows, label in param_sets:
+        print(f"rows: {rows} \n")
+        results.append(process_param_set(rows, label, config))
+    return i, results
+
 if __name__ == "__main__":
-    # Base configuration - the commented out lines can be used instead of providing arguments to the file (e.g. if using it as ipynb notebook)
     # base_config = {
-    #     'time_points':    np.arange(0, 1000, 1), #Time to reach steady state
-    #     'n_cells':        10000, #Before division
-    #     # "path_to_matrix":  "/home/mzo5929/Keerthana/grnInference/simulation_data/general_simulation_data/test_data/matrix101.txt",
-    #     # "param_csv":      "/home/mzo5929/Keerthana/grnInference/simulation_data/gillespie_simulation/sim_details/lhc_sampled_parameters_positive_reg.csv",
-    #     # "row_to_start":      0,
-    #     # "output_folder":      "/path/to/save/simulation/output",
-    #     # "log_file":      "/path/to/log.jsonl",
-    #     # "type":      "A_to_B",
-    #     # 
+    #     'time_points': np.arange(0, 2500, 1),
+    #     'n_cells': 10000,
+    #     "path_to_matrix": f"{root}/grnInference/simulation_data/median_parameter_simulations/simulation_details/interaction_matrix_positive.txt",
+    #     "param_csv": f"{root}/grnInference/simulation_data/median_parameter_simulations/simulation_details/median_param.csv",
+    #     "row_to_start": 0,
+    #     "output_folder": f"{root}/grnInference/simulation_data/median_parameter_simulations/simulations",
+    #     "log_file": f"{root}/grnInference/simulation_data/median_parameter_simulations/simulation_details/median_parameter_simulations.jsonl",
+    #     "type": "A_to_B",  # will be modified per iteration
     # }
+
+    # os.makedirs(base_config["output_folder"], exist_ok=True)
+
+    # df = pd.read_csv(base_config['param_csv'])
+    # rows_to_use = [0, 1]
+    # labels = "rows_" + "_".join(map(str, rows_to_use))
+    # param_sets = [(rows_to_use, labels)]
+    # #  Prepare configs for all 20 iterations
+    # all_iterations = []
+    # for i in range(20):
+    #     config_copy = base_config.copy()
+    #     config_copy["type"] = f"{base_config['type']}_{i}"  # A_to_B_0, A_to_B_1, ...
+    #     all_iterations.append((i, config_copy, param_sets))
+
+    # # Run 4 iterations in parallel
+    # with concurrent.futures.ProcessPoolExecutor(max_workers=4) as executor:
+    #     futures = {
+    #         executor.submit(run_iteration, i, cfg, param_sets): i
+    #         for i, cfg, param_sets in all_iterations
+    #     }
+
+    #     for fut in tqdm(concurrent.futures.as_completed(futures), total=len(futures), desc="All iterations"):
+    #         i = futures[fut]
+    #         try:
+    #             iter_id, results = fut.result()
+    #             print(f"Completed simulation iteration {iter_id}: {results}")
+    #         except Exception as e:
+    #             print(f"Iteration {i} failed: {e}")
+    
+    # base_config = {
+    #     'time_points':    np.arange(0, 2500, 1), #Time to reach steady state
+    #     'n_cells':        10000, #Before division
+    #     "path_to_matrix":  f"{root}/grnInference/simulation_data/median_parameter_simulations/simulation_details/interaction_matrix_no_reg.txt",
+    #     "param_csv":      f"{root}/grnInference/simulation_data/median_parameter_simulations/simulation_details/median_param.csv",
+    #     "row_to_start":      0,
+    #     "output_folder":      f"{root}/grnInference/simulation_data/median_parameter_simulations/simulations",
+    #     "log_file":      f"{root}/grnInference/simulation_data/median_parameter_simulations/simulation_details/median_parameter_simulations.jsonl",
+    #     "type":      "A_B",
+        
+    # }
+
+    # df = pd.read_csv(base_config['param_csv'])
+    # rows_to_use = [0, 1]
+    # labels = "rows_" + "_".join(map(str, rows_to_use))
+    # param_sets = [(rows_to_use, labels)]
+
+    # #  Prepare configs for all 20 iterations
+    # all_iterations = []
+    # for i in range(20):
+    #     config_copy = base_config.copy()
+    #     config_copy["type"] = f"{base_config['type']}_{i}"  # A_to_B_0, A_to_B_1, ...
+    #     all_iterations.append((i, config_copy, param_sets))
+
+    # # Run 4 iterations in parallel
+    # with concurrent.futures.ProcessPoolExecutor(max_workers=4) as executor:
+    #     futures = {
+    #         executor.submit(run_iteration, i, cfg, param_sets): i
+    #         for i, cfg, param_sets in all_iterations
+    #     }
+
+    #     for fut in tqdm(concurrent.futures.as_completed(futures), total=len(futures), desc="All iterations"):
+    #         i = futures[fut]
+    #         try:
+    #             iter_id, results = fut.result()
+    #             print(f"Completed simulation iteration {iter_id}: {results}")
+    #         except Exception as e:
+    #             print(f"Iteration {i} failed: {e}")
+
+    # base_config = {
+    #     'time_points':    np.arange(0, 2500, 1), #Time to reach steady state
+    #     'n_cells':        10000, #Before division
+    #     "path_to_matrix":  f"{root}/grnInference/simulation_data/median_parameter_simulations/simulation_details/interaction_matrix_no_reg.txt",
+    #     "param_csv":      f"{root}/grnInference/simulation_data/median_parameter_simulations/simulation_details/median_param.csv",
+    #     "row_to_start":      0,
+    #     "output_folder":      f"{root}/grnInference/simulation_data/median_parameter_simulations/simulations",
+    #     "log_file":      f"{root}/grnInference/simulation_data/median_parameter_simulations/simulation_details/median_parameter_simulations.jsonl",
+    #     "type":      "A_B_only_lower_k_on",
+        
+    # }
+
+    # df = pd.read_csv(base_config['param_csv'])
+    # rows_to_use = [25, 26]
+    # labels = "rows_" + "_".join(map(str, rows_to_use))
+    # param_sets = [(rows_to_use, labels)]
+
+    # #  Prepare configs for all 20 iterations
+    # all_iterations = []
+    # for i in range(20):
+    #     config_copy = base_config.copy()
+    #     config_copy["type"] = f"{base_config['type']}_{i}"  # A_to_B_0, A_to_B_1, ...
+    #     all_iterations.append((i, config_copy, param_sets))
+
+    # # Run 4 iterations in parallel
+    # with concurrent.futures.ProcessPoolExecutor(max_workers=4) as executor:
+    #     futures = {
+    #         executor.submit(run_iteration, i, cfg, param_sets): i
+    #         for i, cfg, param_sets in all_iterations
+    #     }
+
+    #     for fut in tqdm(concurrent.futures.as_completed(futures), total=len(futures), desc="All iterations"):
+    #         i = futures[fut]
+    #         try:
+    #             iter_id, results = fut.result()
+    #             print(f"Completed simulation iteration {iter_id}: {results}")
+    #         except Exception as e:
+    #             print(f"Iteration {i} failed: {e}")
+    
+    # base_config = {
+    #     'time_points':    np.arange(0, 2500, 1), #Time to reach steady state
+    #     'n_cells':        10000, #Before division
+    #     "path_to_matrix":  f"{root}/grnInference/simulation_data/median_parameter_simulations/simulation_details/interaction_matrix_no_reg.txt",
+    #     "param_csv":      f"{root}/grnInference/simulation_data/median_parameter_simulations/simulation_details/median_param.csv",
+    #     "row_to_start":      0,
+    #     "output_folder":      f"{root}/grnInference/simulation_data/median_parameter_simulations/simulations",
+    #     "log_file":      f"{root}/grnInference/simulation_data/median_parameter_simulations/simulation_details/median_parameter_simulations.jsonl",
+    #     "type":      "A_B_only_higher_k_on",
+    # }
+    
+    # df = pd.read_csv(base_config['param_csv'])
+    # rows_to_use = [27, 28]
+    # labels = "rows_" + "_".join(map(str, rows_to_use))
+    # param_sets = [(rows_to_use, labels)]
+
+    # #  Prepare configs for all 20 iterations
+    # all_iterations = []
+    # for i in range(20):
+    #     config_copy = base_config.copy()
+    #     config_copy["type"] = f"{base_config['type']}_{i}"  # A_to_B_0, A_to_B_1, ...
+    #     all_iterations.append((i, config_copy, param_sets))
+
+    # # Run 4 iterations in parallel
+    # with concurrent.futures.ProcessPoolExecutor(max_workers=4) as executor:
+    #     futures = {
+    #         executor.submit(run_iteration, i, cfg, param_sets): i
+    #         for i, cfg, param_sets in all_iterations
+    #     }
+
+    #     for fut in tqdm(concurrent.futures.as_completed(futures), total=len(futures), desc="All iterations"):
+    #         i = futures[fut]
+    #         try:
+    #             iter_id, results = fut.result()
+    #             print(f"Completed simulation iteration {iter_id}: {results}")
+    #         except Exception as e:
+    #             print(f"Iteration {i} failed: {e}")
+    
     base_config = {
-        'time_points':    np.arange(0, 2000, 1), #Time to reach steady state
+        'time_points':    np.arange(0, 2500, 1), #Time to reach steady state
         'n_cells':        10000, #Before division
-        "path_to_matrix":  "/home/mzo5929/Keerthana/grnInference/simulation_data/gillespie_simulation_run_2/sim_details/interaction_matrix_positive.txt",
-        "param_csv":      "/home/mzo5929/Keerthana/grnInference/simulation_data/gillespie_simulation_test/sim_details/effect_of_radd_positive_new.csv",
-        "param_to_start":      16,
-        "output_folder":      "/home/mzo5929/Keerthana/grnInference/simulation_data/gillespie_simulation_run_2/A_to_B_r_add/",
-        "log_file":      "/home/mzo5929/Keerthana/grnInference/simulation_data/gillespie_simulation_test/sim_details/A_to_B_r_add.jsonl",
-        "type":      "A_to_B",
+        "path_to_matrix":  f"{root}/grnInference/simulation_data/median_parameter_simulations/simulation_details/interaction_matrix_positive.txt",
+        "param_csv":      f"{root}/grnInference/simulation_data/median_parameter_simulations/simulation_details/median_param.csv",
+        "row_to_start":      0,
+        "output_folder":      f"{root}/grnInference/simulation_data/median_parameter_simulations/simulations",
+        "log_file":      f"{root}/grnInference/simulation_data/median_parameter_simulations/simulation_details/median_parameter_simulations.jsonl",
+        "type":      "A_to_B_only_lower_k_on",
         
     }
-    os.makedirs(base_config['output_folder'], exist_ok = True)
-
-    
-    # Define 4 parameter sets (rows) and labels
-    # Parse command-line arguments
-    # parser = argparse.ArgumentParser(description="Run Gillespie simulation with specified inputs.")
-    # parser.add_argument("--matrix_path", type=str, required=True, help="Path to the interaction matrix file.")
-    # parser.add_argument("--param_csv", type=str, required=True, help="Path to the parameter CSV file.")
-    # parser.add_argument("--param_to_start", type=int, required=True, help="Row of parameter file to start.")
-    # parser.add_argument("--output_folder", type=str , required=True, help="Folder to save the simulation.")
-    # parser.add_argument("--log_file", type=str , required=True, help="Json file to save log.")
-    # parser.add_argument("--type", type=str , required=True, help="Type of regulation.")
-    # args = parser.parse_args()
-
-    # # Update base configuration with parsed arguments
-    # base_config["path_to_matrix"] = args.matrix_path
-    # base_config["param_csv"] = args.param_csv
-    # base_config["row_to_start"] = int(args.row_to_start)
-    # base_config["output_folder"] = args.output_folder
-    # base_config["log_file"] = args.log_file
-    # base_config["type"] = args.type
-    os.makedirs(base_config['output_folder'], exist_ok = True)
     df = pd.read_csv(base_config['param_csv'])
-    start = base_config["param_to_start"]*2
-    end = len(df)
-    #This simulation will run the rows from the row_to_start till the end (useful to batch across multiple runs)
-    row_list = [[i, i+1] for i in range(start, end, 2)]
-    labels = [f"row_{i}_{i+1}" for i in range( start, end, 2)]
-    param_sets = list(zip(row_list, labels))
-    # Use 32 cores split into 4 workers (8 threads each)
+    rows_to_use = [25, 26]
+    labels = "rows_" + "_".join(map(str, rows_to_use))
+    param_sets = [(rows_to_use, labels)]
+
+    #  Prepare configs for all 20 iterations
+    all_iterations = []
+    for i in range(20):
+        config_copy = base_config.copy()
+        config_copy["type"] = f"{base_config['type']}_{i}"  # A_to_B_0, A_to_B_1, ...
+        all_iterations.append((i, config_copy, param_sets))
+
+    # Run 4 iterations in parallel
     with concurrent.futures.ProcessPoolExecutor(max_workers=4) as executor:
-        futures = [executor.submit(process_param_set, rows, label, base_config)
-                   for rows, label in param_sets]
-        for fut in tqdm(concurrent.futures.as_completed(futures), total=len(futures), desc="Param sets"):  
-            prefix = fut.result()
-            print(f"Completed simulation: {prefix}")
-# %%
+        futures = {
+            executor.submit(run_iteration, i, cfg, param_sets): i
+            for i, cfg, param_sets in all_iterations
+        }
+
+        for fut in tqdm(concurrent.futures.as_completed(futures), total=len(futures), desc="All iterations"):
+            i = futures[fut]
+            try:
+                iter_id, results = fut.result()
+                print(f"Completed simulation iteration {iter_id}: {results}")
+            except Exception as e:
+                print(f"Iteration {i} failed: {e}")
+    
+    base_config = {
+        'time_points':    np.arange(0, 2500, 1), #Time to reach steady state
+        'n_cells':        10000, #Before division
+        "path_to_matrix":  f"{root}/grnInference/simulation_data/median_parameter_simulations/simulation_details/interaction_matrix_positive.txt",
+        "param_csv":      f"{root}/grnInference/simulation_data/median_parameter_simulations/simulation_details/median_param.csv",
+        "row_to_start":      0,
+        "output_folder":      f"{root}/grnInference/simulation_data/median_parameter_simulations/simulations",
+        "log_file":      f"{root}/grnInference/simulation_data/median_parameter_simulations/simulation_details/median_parameter_simulations.jsonl",
+        "type":      "A_to_B_only_higher_k_on",
+        
+    }
+    df = pd.read_csv(base_config['param_csv'])
+    rows_to_use = [27, 28]
+    labels = "rows_" + "_".join(map(str, rows_to_use))
+    param_sets = [(rows_to_use, labels)]
+
+    #  Prepare configs for all 20 iterations
+    all_iterations = []
+    for i in range(20):
+        config_copy = base_config.copy()
+        config_copy["type"] = f"{base_config['type']}_{i}"  # A_to_B_0, A_to_B_1, ...
+        all_iterations.append((i, config_copy, param_sets))
+
+    # Run 4 iterations in parallel
+    with concurrent.futures.ProcessPoolExecutor(max_workers=4) as executor:
+        futures = {
+            executor.submit(run_iteration, i, cfg, param_sets): i
+            for i, cfg, param_sets in all_iterations
+        }
+
+        for fut in tqdm(concurrent.futures.as_completed(futures), total=len(futures), desc="All iterations"):
+            i = futures[fut]
+            try:
+                iter_id, results = fut.result()
+                print(f"Completed simulation iteration {iter_id}: {results}")
+            except Exception as e:
+                print(f"Iteration {i} failed: {e}")

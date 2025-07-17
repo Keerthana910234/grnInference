@@ -209,8 +209,12 @@ def assign_parameters_to_genes(csv_path, gene_list, rows=None):
         vals["p_deg_protein"] = np.log(2)/vals["protein_half_life"]
         vals.drop(["mrna_half_life","protein_half_life"],axis=0,inplace=True,errors="ignore")
         param_matrix[gene] = vals
-        for k,v in vals.items():
-            param_dict[f"{{{k}_{gene}}}"] = float(v)
+        for k, v in vals.items():
+            if "_to_" in k:
+                param_dict[f"{{{k}}}"] = float(v)  # Interaction parameter: keep as is
+            else:
+                param_dict[f"{{{k}_{gene}}}"] = float(v)  # Gene-specific parameter
+    print(param_dict)
     return param_dict, pd.DataFrame(param_matrix).T
 
 def generate_k_from_steady_state_calc(param_dict, interaction_matrix, gene_list,
@@ -548,7 +552,7 @@ def simulate_cells_numba(update_propensities, update_matrix, pop0_mat, time_poin
 # %%
 # Check for steady state
 def is_steady_state(samples, time_points, mean_tol=0.05, std_tol=0.05,
-                    slope_tol=0.05, window_frac=0.25, verbose=False):
+                    slope_tol=0.05, window_frac=0.2, verbose=False):
     """
     Check if the simulation has reached steady state.
 
@@ -692,10 +696,26 @@ def process_param_set(rows, label, base_config):
     base_samples = run_simulation(update_prop, update_matrix, pop0, time_points, n_cells)
     if not is_steady_state(base_samples, time_points):
         print(f"⚠️ Base simulation (basal) for {label} not steady.")
+        # Log the issue in a separate file
+        error_record = {
+            "id": uuid.uuid4().hex[:8],
+            "rows": rows,
+            "timestamp": datetime.now().strftime("%d%m%Y_%H%M%S"),
+            "issue": "Base simulation not steady",
+            "label": label
+        }
+        log_folder = os.path.join(os.path.dirname(base_config['log_file']))
+        os.makedirs(log_folder, exist_ok=True)
+        log_file_path = os.path.join(log_folder, f"error_log_{label}.jsonl")
+        with open(log_file_path, "a") as log_file:
+            log_file.write(json.dumps(error_record) + "\n")
+        
+    df_base = extract_mrna_protein_fast(base_samples, species_index)
     
     # 2) Replicate into two to create daughter cells
     final_states = base_samples[:, -1, :]
-    rep_time = np.arange(0, 48, 1)
+    del base_samples
+    rep_time = np.arange(0, 49, 1)
     pop0_rep = np.concatenate([final_states.T, final_states.T], axis=1)
     rep_samples = simulate_cells_numba(update_prop, update_matrix, pop0_rep, rep_time, np.zeros(2*n_cells, dtype=np.int64))
     
@@ -715,6 +735,7 @@ def process_param_set(rows, label, base_config):
     prefix = f"{label}_{timestamp}_ncells_{n_cells}_{base_config['type']}_{id}"
     df_rep.to_csv(f"{base_config['output_folder']}/df_{prefix}.csv", index=False)
     np.savetxt(f"{base_config['output_folder']}/samples_{prefix}.csv", rep_samples.reshape(2*n_cells, -1), delimiter=",")
+    df_base.to_csv(f"{base_config['output_folder']}/test_df_{prefix}.csv", index=False)
     record = {
         "id": id,
         "rows": rows,
@@ -732,17 +753,31 @@ def process_param_set(rows, label, base_config):
 # --- Main execution with parallel parameter sets ---
 if __name__ == "__main__":
     # Base configuration - the commented out lines can be used instead of providing arguments to the file (e.g. if using it as ipynb notebook)
+    # base_config = {
+    #     'time_points':    np.arange(0, 1000, 1), #Time to reach steady state
+    #     'n_cells':        10000, #Before division
+    #     # "path_to_matrix":  "/home/mzo5929/Keerthana/grnInference/simulation_data/general_simulation_data/test_data/matrix101.txt",
+    #     # "param_csv":      "/home/mzo5929/Keerthana/grnInference/simulation_data/gillespie_simulation/sim_details/lhc_sampled_parameters_positive_reg.csv",
+    #     # "row_to_start":      0,
+    #     # "output_folder":      "/path/to/save/simulation/output",
+    #     # "log_file":      "/path/to/log.jsonl",
+    #     # "type":      "A_to_B",
+    #     # 
+    # }
     base_config = {
         'time_points':    np.arange(0, 2500, 1), #Time to reach steady state
-        'n_cells':        10000 #Before division
-        # "path_to_matrix":  "/home/mzo5929/Keerthana/grnInference/simulation_data/general_simulation_data/test_data/matrix101.txt",
-        # "param_csv":      "/home/mzo5929/Keerthana/grnInference/simulation_data/gillespie_simulation/sim_details/lhc_sampled_parameters_positive_reg.csv",
+        'n_cells':        10000, #Before division
+        # "path_to_matrix":  "/path/to/interaction/matrix.txt",
+        # "param_csv":      "/path/to/parameters.csv",
         # "row_to_start":      0,
-        # "output_folder":      "/path/to/save/saimulation/output",
+        # "output_folder":      "/path/to/output/folder/",
         # "log_file":      "/path/to/log.jsonl",
         # "type":      "A_to_B",
-        # 
+        
     }
+
+
+    
     # Define 4 parameter sets (rows) and labels
     # Parse command-line arguments
     parser = argparse.ArgumentParser(description="Run Gillespie simulation with specified inputs.")
@@ -761,11 +796,13 @@ if __name__ == "__main__":
     base_config["output_folder"] = args.output_folder
     base_config["log_file"] = args.log_file
     base_config["type"] = args.type
-
+    os.makedirs(base_config["output_folder"], exist_ok = True)
     df = pd.read_csv(base_config['param_csv'])
+    start = base_config["row_to_start"]*2
+    end = len(df)
     #This simulation will run the rows from the row_to_start till the end (useful to batch across multiple runs)
-    row_list = [[i, i+1] for i in range(base_config["row_to_start"], len(df), 2)]
-    labels = [f"row_{i}_{i+1}" for i in range( base_config["row_to_start"], len(df), 2)]
+    row_list = [[i, i+1] for i in range(start, end, 2)]
+    labels = [f"row_{i}_{i+1}" for i in range( start, end, 2)]
     param_sets = list(zip(row_list, labels))
     # Use 32 cores split into 4 workers (8 threads each)
     with concurrent.futures.ProcessPoolExecutor(max_workers=4) as executor:
