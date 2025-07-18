@@ -776,8 +776,6 @@ if __name__ == "__main__":
         
     }
 
-
-    
     # Define 4 parameter sets (rows) and labels
     # Parse command-line arguments
     parser = argparse.ArgumentParser(description="Run Gillespie simulation with specified inputs.")
@@ -811,4 +809,3 @@ if __name__ == "__main__":
         for fut in tqdm(concurrent.futures.as_completed(futures), total=len(futures), desc="Param sets"):  
             prefix = fut.result()
             print(f"Completed simulation: {prefix}")
-# %%

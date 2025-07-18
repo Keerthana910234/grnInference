@@ -1,3 +1,4 @@
-,p_on,p_off,mrna_half_life,protein_half_life,p_prod_mRNA,p_prod_protein,n_gene_1_to_gene_2,p_add_gene_1_to_gene_2,pair_id,gene_id
-0,0.55,7.30,5,45,2,560,2,6,0,1
-1,0.55,7.30,5,45,2,560,2,6,0,2
+,p_on,p_off,mrna_half_life,protein_half_life,p_prod_mRNA,p_prod_protein,n_gene_1_to_gene_2,p_add_gene_1_to_gene_2.n_gene_2_to_gene_1,p_add_gene_2_to_gene_1,n_gene_2_to_gene_3,p_add_gene_2_to_gene_3,pair_id,gene_id
+0,0.55,7.30,5,45,2,560,2,6,2,6,2,6,0,1
+1,0.55,7.30,5,45,2,560,2,6,2,6,2,6,0,2
+2,0.55,7.30,5,45,2,560,2,6,2,6,2,6,0,3
