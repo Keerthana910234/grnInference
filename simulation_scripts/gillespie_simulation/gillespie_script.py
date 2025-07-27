@@ -304,7 +304,7 @@ def add_interaction_terms(param_dict, interaction_matrix, gene_list,
     if n_matrix is None:
         n_matrix = np.full((n,n),2.0)
     if p_add_matrix is None:
-        p_add_matrix = np.full((n,n),10.0)
+        p_add_matrix = np.full((n,n),6.0)
     for i in range(n):
         for j in range(n):
             if interaction_matrix[i,j]!=0:
@@ -440,7 +440,7 @@ def gillespie_draw(prop_func, prop, pop, t):
 
 # %% Vectorized extraction
 
-def extract_mrna_protein_fast(samples: np.ndarray, species_index: dict,
+def convert_samples_to_df(samples: np.ndarray, species_index: dict,
                               types=('mRNA','protein')) -> pd.DataFrame:
     """
     Extracts mRNA and protein data from simulation samples and organizes it into a pandas DataF
@@ -468,91 +468,143 @@ def extract_mrna_protein_fast(samples: np.ndarray, species_index: dict,
     df.insert(0,'cell_id',cell_ids)
     return df
 
+# @numba.njit(parallel=True, fastmath=True)
+# def simulate_cells_numba(update_propensities, update_matrix, pop0_mat, time_points, verbose_flags):
+#     """
+#     Simulates the dynamics of multiple cells using the Gillespie algorithm.
+
+#     Parameters:
+#     -----------
+#     update_propensities : callable
+#         A function that updates the reaction propensities for a given cell population and time.
+#         It should accept three arguments: propensities array, population array, and current time.
+#     update_matrix : numpy.ndarray
+#         A 2D array of shape (n_rxns, n_species) representing the stoichiometric matrix for reactions.
+#         Each row corresponds to a reaction, and each column corresponds to a species.
+#     pop0_mat : numpy.ndarray
+#         A 2D array of shape (n_species, n_cells) representing the initial population of species for each cell.
+#         Each column corresponds to a cell, and each row corresponds to a species.
+#     time_points : numpy.ndarray
+#         A 1D array of time points at which the population samples are recorded.
+#     verbose_flags : numpy.ndarray
+#         A 1D array of flags for each cell to indicate if the simulation encountered issues (e.g., stuck state).
+
+#     Returns:
+#     --------
+#     samples : numpy.ndarray
+#         A 3D array of shape (n_cells, n_time, n_species) containing the simulated population of species
+#         for each cell at each time point. The dimensions correspond to cells, time points, and species.
+
+#     Notes:
+#     ------
+#     - The Gillespie algorithm is used to simulate stochastic dynamics of chemical reactions.
+#     - If a cell's simulation gets stuck (e.g., due to zero total propensity), it will attempt to recover
+#       up to `max_attempts` times before marking the cell as problematic in `verbose_flags`.
+#     - The simulation fills skipped time points with the previous population state to ensure continuity.
+#     """
+#     n_species, n_cells = pop0_mat.shape
+#     n_time = time_points.shape[0]
+#     n_rxns = update_matrix.shape[0]
+#     samples = np.zeros((n_cells, n_time, n_species), dtype=np.int64)
+
+#     for cell in prange(n_cells):
+#         pop = pop0_mat[:, cell].copy()
+#         prev = pop.copy()
+#         t = time_points[0]
+#         samples[cell, 0, :] = pop
+#         i_time = 1
+#         stuck_counter = 0
+#         max_attempts = 10000
+#         prop = np.zeros(n_rxns, dtype=np.float64)
+
+#         while i_time < n_time:
+#             update_propensities(prop, pop, t)
+#             total = prop.sum()
+#             if total <= 0:
+#                 stuck_counter += 1
+#                 if stuck_counter > max_attempts:
+#                     verbose_flags[cell] = 1
+#                     break
+#                 continue
+#             stuck_counter = 0
+#             dt = np.random.exponential(1.0 / total)
+#             q = np.random.rand()
+#             cum = 0.0
+#             for i in range(n_rxns):
+#                 cum += prop[i] / total
+#                 if cum >= q:
+#                     rxn = i
+#                     break
+#             else:
+#                 rxn = n_rxns - 1
+
+#             prev = pop.copy()
+#             for s in range(n_species):
+#                 pop[s] += update_matrix[rxn, s]
+#             t += dt
+
+#             # Fill all previous time points when no event occurred
+#             while i_time < n_time and t >= time_points[i_time]:
+#                 samples[cell, i_time, :] = prev
+#                 i_time += 1
+#     return samples
+
 @numba.njit(parallel=True, fastmath=True)
 def simulate_cells_numba(update_propensities, update_matrix, pop0_mat, time_points, verbose_flags):
-    """
-    Simulates the dynamics of multiple cells using the Gillespie algorithm.
-
-    Parameters:
-    -----------
-    update_propensities : callable
-        A function that updates the reaction propensities for a given cell population and time.
-        It should accept three arguments: propensities array, population array, and current time.
-    update_matrix : numpy.ndarray
-        A 2D array of shape (n_rxns, n_species) representing the stoichiometric matrix for reactions.
-        Each row corresponds to a reaction, and each column corresponds to a species.
-    pop0_mat : numpy.ndarray
-        A 2D array of shape (n_species, n_cells) representing the initial population of species for each cell.
-        Each column corresponds to a cell, and each row corresponds to a species.
-    time_points : numpy.ndarray
-        A 1D array of time points at which the population samples are recorded.
-    verbose_flags : numpy.ndarray
-        A 1D array of flags for each cell to indicate if the simulation encountered issues (e.g., stuck state).
-
-    Returns:
-    --------
-    samples : numpy.ndarray
-        A 3D array of shape (n_cells, n_time, n_species) containing the simulated population of species
-        for each cell at each time point. The dimensions correspond to cells, time points, and species.
-
-    Notes:
-    ------
-    - The Gillespie algorithm is used to simulate stochastic dynamics of chemical reactions.
-    - If a cell's simulation gets stuck (e.g., due to zero total propensity), it will attempt to recover
-      up to `max_attempts` times before marking the cell as problematic in `verbose_flags`.
-    - The simulation fills skipped time points with the previous population state to ensure continuity.
-    """
     n_species, n_cells = pop0_mat.shape
     n_time = time_points.shape[0]
     n_rxns = update_matrix.shape[0]
-    samples = np.zeros((n_cells, n_time, n_species), dtype=np.int64)
+    samples = np.empty((n_cells, n_time, n_species), dtype=np.int64)
 
     for cell in prange(n_cells):
         pop = pop0_mat[:, cell].copy()
-        prev = pop.copy()
-        t = time_points[0]
-        samples[cell, 0, :] = pop
-        i_time = 1
+        t = 0.0
+        i_time = 0
         stuck_counter = 0
         max_attempts = 10000
         prop = np.zeros(n_rxns, dtype=np.float64)
+        next_tp = time_points[0]
 
         while i_time < n_time:
             update_propensities(prop, pop, t)
             total = prop.sum()
-            if total <= 0:
+
+            if total <= 1e-12:  # no events possible
                 stuck_counter += 1
                 if stuck_counter > max_attempts:
                     verbose_flags[cell] = 1
+                    samples[cell, i_time:, :] = pop
                     break
+                samples[cell, i_time, :] = pop
+                i_time += 1
                 continue
+
             stuck_counter = 0
             dt = np.random.exponential(1.0 / total)
-            q = np.random.rand()
-            cum = 0.0
-            for i in range(n_rxns):
-                cum += prop[i] / total
-                if cum >= q:
-                    rxn = i
-                    break
-            else:
-                rxn = n_rxns - 1
-
-            prev = pop.copy()
-            for s in range(n_species):
-                pop[s] += update_matrix[rxn, s]
             t += dt
 
-            # Fill all previous time points when no event occurred
-            while i_time < n_time and t >= time_points[i_time]:
-                samples[cell, i_time, :] = prev
+            # Fill skipped time points in batch
+            while i_time < n_time and t >= next_tp:
+                samples[cell, i_time, :] = pop
                 i_time += 1
+                if i_time < n_time:
+                    next_tp = time_points[i_time]
+
+            # Vectorized reaction selection
+            cum_props = np.cumsum(prop)
+            r = np.searchsorted(cum_props, np.random.rand() * total)
+            pop += update_matrix[r]
+        # Ensure final state filled
+        if i_time < n_time:
+            samples[cell, i_time:, :] = pop
+
     return samples
+
 
 # %%
 # Check for steady state
 def is_steady_state(samples, time_points, mean_tol=0.05, std_tol=0.05,
-                    slope_tol=0.05, window_frac=0.2, verbose=False):
+                    slope_tol=0.05, window_frac=0.1, verbose=False):
     """
     Check if the simulation has reached steady state.
 
@@ -644,23 +696,10 @@ def run_simulation(update_propensities, update_matrix, pop0, time_points, n_cell
             print(f"⚠️ WARNING: Cell {cell} got stuck (zero propensities).")
     return samples
 
-# --- Extraction ---
-def extract_mrna_protein_fast(samples, species_index, types=('mRNA','protein')):
-    n_cells, n_time, _ = samples.shape
-    sel = [(name,idx) for name,idx in species_index.items() if any(name.endswith(t) for t in types)]
-    names, idxs = zip(*sel)
-    data = samples[:,:,idxs].reshape(n_cells*n_time, len(idxs))
-    cell_ids   = np.repeat(np.arange(n_cells), n_time)
-    time_steps = np.tile(np.arange(n_time), n_cells)
-    df = pd.DataFrame(data, columns=names)
-    df.insert(0,'time_step',time_steps)
-    df.insert(0,'cell_id',  cell_ids)
-    return df
-
 # --- Worker for a single parameter set ---
 def process_param_set(rows, label, base_config):
     # base_config contains common parameters: paths, p_add_matrix, n_matrix, time_points
-    set_num_threads(8)
+    set_num_threads(6)
     print(f"[Worker {label}] Using {get_num_threads()} threads for rows={rows}\n")
     # Unpack base_config
     path_to_matrix = base_config['path_to_matrix']
@@ -710,7 +749,7 @@ def process_param_set(rows, label, base_config):
         with open(log_file_path, "a") as log_file:
             log_file.write(json.dumps(error_record) + "\n")
         
-    df_base = extract_mrna_protein_fast(base_samples, species_index)
+    # df_base = convert_samples_to_df(base_samples, species_index)
     
     # 2) Replicate into two to create daughter cells
     final_states = base_samples[:, -1, :]
@@ -720,7 +759,7 @@ def process_param_set(rows, label, base_config):
     rep_samples = simulate_cells_numba(update_prop, update_matrix, pop0_rep, rep_time, np.zeros(2*n_cells, dtype=np.int64))
     
     # 3) Extract from simulation and label
-    df_rep = extract_mrna_protein_fast(rep_samples, species_index)
+    df_rep = convert_samples_to_df(rep_samples, species_index)
     n_total = 2 * n_cells
     replicate_ids = np.repeat([1, 2], n_cells)
     clone_ids = np.tile(np.arange(n_cells), 2)
@@ -734,12 +773,13 @@ def process_param_set(rows, label, base_config):
     id = uuid.uuid4().hex[:8]
     prefix = f"{label}_{timestamp}_ncells_{n_cells}_{base_config['type']}_{id}"
     df_rep.to_csv(f"{base_config['output_folder']}/df_{prefix}.csv", index=False)
-    np.savetxt(f"{base_config['output_folder']}/samples_{prefix}.csv", rep_samples.reshape(2*n_cells, -1), delimiter=",")
-    df_base.to_csv(f"{base_config['output_folder']}/test_df_{prefix}.csv", index=False)
+    # np.savetxt(f"{base_config['output_folder']}/samples_{prefix}.csv", rep_samples.reshape(2*n_cells, -1), delimiter=",")
+    # df_base.to_csv(f"{base_config['output_folder']}/test_df_{prefix}.csv", index=False)
     record = {
         "id": id,
         "rows": rows,
         "n_cells": n_cells,
+        "type": base_config['type'],
         "timestamp": timestamp,
         "param_dict": full_param_dict,
         "steady_state": steady_state.tolist()
@@ -796,12 +836,27 @@ if __name__ == "__main__":
     base_config["type"] = args.type
     os.makedirs(base_config["output_folder"], exist_ok = True)
     df = pd.read_csv(base_config['param_csv'])
-    start = base_config["row_to_start"]*2
-    end = len(df)
-    #This simulation will run the rows from the row_to_start till the end (useful to batch across multiple runs)
-    row_list = [[i, i+1] for i in range(start, end, 2)]
-    labels = [f"row_{i}_{i+1}" for i in range( start, end, 2)]
+
+    n_genes = base_config.get("n_genes", 2)  # 2 or 3
+    start_pair = base_config["row_to_start"]  # row_to_start now refers to pair_id
+    end_pair =start_pair + 650
+    print(f"start_pair: {start_pair}, end_pair: {end_pair}")
+    row_list = []
+    labels = []
+
+    # Group by pair_id and collect rows for each group
+    for pair in range(start_pair, end_pair + 1):
+        subset = df[df["pair_id"] == pair].sort_values("gene_id")
+        rows = subset.index.tolist()
+
+        # Ensure only complete groups are taken
+        if len(rows) >= n_genes:
+            row_list.append(rows[:n_genes])
+            labels.append(f"row_{'_'.join(map(str, rows))}")
+
+
     param_sets = list(zip(row_list, labels))
+    print(len(param_sets))
     # Use 32 cores split into 4 workers (8 threads each)
     with concurrent.futures.ProcessPoolExecutor(max_workers=4) as executor:
         futures = [executor.submit(process_param_set, rows, label, base_config)
@@ -809,3 +864,4 @@ if __name__ == "__main__":
         for fut in tqdm(concurrent.futures.as_completed(futures), total=len(futures), desc="Param sets"):  
             prefix = fut.result()
             print(f"Completed simulation: {prefix}")
+
