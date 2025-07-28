@@ -14,6 +14,11 @@ from tqdm.auto import tqdm
 import time
 import concurrent.futures
 import argparse
+import gc 
+
+set_num_threads(12)
+print("Threads Numba will use:", get_num_threads())
+
 # %% Input utilities
 
 def read_input_matrix(path_to_matrix: str) -> (int, np.ndarray):
@@ -40,6 +45,58 @@ def read_input_matrix(path_to_matrix: str) -> (int, np.ndarray):
         return matrix.shape[0], matrix
     except Exception as e:
         raise ValueError(f"Error loading matrix from {path_to_matrix}: {e}")
+
+def assign_parameters_to_genes(csv_path, gene_list, rows=None):
+    """
+    Assigns parameters to a list of genes based on values from a CSV file.
+
+    This function reads a CSV file containing parameter values, selects rows 
+    either randomly or based on the provided indices, and assigns the parameters 
+    to the specified genes. It calculates additional parameters such as 
+    degradation rates for mRNA and protein based on their respective half-lives.
+
+    Args:
+        csv_path (str): Path to the CSV file containing parameter values. 
+                        The file should have columns including 'mrna_half_life' 
+                        and 'protein_half_life'.
+        gene_list (list): List of gene names to which parameters will be assigned.
+        rows (list, optional): List of row indices to select from the CSV file. 
+                               If None, rows are randomly selected with replacement. 
+                               Defaults to None.
+
+    Returns:
+        tuple: A tuple containing:
+            - param_dict (dict): A dictionary mapping parameter names (formatted 
+                                 as "{parameter_gene}") to their values.
+            - param_matrix (pd.DataFrame): A DataFrame where rows correspond to 
+                                           genes and columns correspond to parameter values.
+    """
+    try:
+        df = pd.read_csv(csv_path, index_col=0)
+    except FileNotFoundError:
+        raise ValueError(f"Parameter csv file not found at path: {csv_path}")
+    n = len(gene_list)
+    if rows is None:
+        rows = np.random.choice(df.index, size=n, replace=True)
+    param_dict = {}
+    param_matrix = {}
+    for i,row in enumerate(rows):
+        gene = gene_list[i]
+        if int(row) in df.index:
+            vals = df.loc[int(row)].copy()
+        else:
+            raise KeyError(f"Row index {int(row)} not found in the DataFrame.")
+        vals["p_deg_mRNA"] = np.log(2)/vals["mrna_half_life"]
+        vals["p_deg_protein"] = np.log(2)/vals["protein_half_life"]
+        vals.drop(["mrna_half_life","protein_half_life"],axis=0,inplace=True,errors="ignore")
+        param_matrix[gene] = vals
+        for k, v in vals.items():
+            if "_to_" in k:
+                param_dict[f"{{{k}}}"] = float(v)  # Interaction parameter: keep as is
+            else:
+                param_dict[f"{{{k}_{gene}}}"] = float(v)  # Gene-specific parameter
+    print(param_dict)
+    return param_dict, pd.DataFrame(param_matrix).T
 
 def generate_reaction_network_from_matrix(interaction_matrix: np.ndarray):
     """
@@ -165,58 +222,6 @@ def generate_initial_state_from_genes(gene_list):
         ]
     return pd.DataFrame(states)
 
-def assign_parameters_to_genes(csv_path, gene_list, rows=None):
-    """
-    Assigns parameters to a list of genes based on values from a CSV file.
-
-    This function reads a CSV file containing parameter values, selects rows 
-    either randomly or based on the provided indices, and assigns the parameters 
-    to the specified genes. It calculates additional parameters such as 
-    degradation rates for mRNA and protein based on their respective half-lives.
-
-    Args:
-        csv_path (str): Path to the CSV file containing parameter values. 
-                        The file should have columns including 'mrna_half_life' 
-                        and 'protein_half_life'.
-        gene_list (list): List of gene names to which parameters will be assigned.
-        rows (list, optional): List of row indices to select from the CSV file. 
-                               If None, rows are randomly selected with replacement. 
-                               Defaults to None.
-
-    Returns:
-        tuple: A tuple containing:
-            - param_dict (dict): A dictionary mapping parameter names (formatted 
-                                 as "{parameter_gene}") to their values.
-            - param_matrix (pd.DataFrame): A DataFrame where rows correspond to 
-                                           genes and columns correspond to parameter values.
-    """
-    try:
-        df = pd.read_csv(csv_path, index_col=0)
-    except FileNotFoundError:
-        raise ValueError(f"Parameter csv file not found at path: {csv_path}")
-    n = len(gene_list)
-    if rows is None:
-        rows = np.random.choice(df.index, size=n, replace=True)
-    param_dict = {}
-    param_matrix = {}
-    for i,row in enumerate(rows):
-        gene = gene_list[i]
-        if int(row) in df.index:
-            vals = df.loc[int(row)].copy()
-        else:
-            raise KeyError(f"Row index {int(row)} not found in the DataFrame.")
-        vals["p_deg_mRNA"] = np.log(2)/vals["mrna_half_life"]
-        vals["p_deg_protein"] = np.log(2)/vals["protein_half_life"]
-        vals.drop(["mrna_half_life","protein_half_life"],axis=0,inplace=True,errors="ignore")
-        param_matrix[gene] = vals
-        for k, v in vals.items():
-            if "_to_" in k:
-                param_dict[f"{{{k}}}"] = float(v)  # Interaction parameter: keep as is
-            else:
-                param_dict[f"{{{k}_{gene}}}"] = float(v)  # Gene-specific parameter
-    print(param_dict)
-    return param_dict, pd.DataFrame(param_matrix).T
-
 def generate_k_from_steady_state_calc(param_dict, interaction_matrix, gene_list,
                                       target_hill=0.5, scale_k=None):
     """
@@ -274,8 +279,8 @@ def generate_k_from_steady_state_calc(param_dict, interaction_matrix, gene_list,
         m = p_prod_mRNA * burst_prob / p_deg_mRNA
         protein_levels[i] = max(m * p_prod_prot / p_deg_prot, 0.1)
     # assign k values
-    for i,src in enumerate(gene_list):
-        for j,tgt in enumerate(gene_list):
+    for i, src in enumerate(gene_list):
+        for j, tgt in enumerate(gene_list):
             if interaction_matrix[i,j]!=0:
                 key = f"{{k_{src}_to_{tgt}}}"
                 param_dict[key] = protein_levels[i]*scale_k[i,j]
@@ -468,87 +473,6 @@ def convert_samples_to_df(samples: np.ndarray, species_index: dict,
     df.insert(0,'cell_id',cell_ids)
     return df
 
-# @numba.njit(parallel=True, fastmath=True)
-# def simulate_cells_numba(update_propensities, update_matrix, pop0_mat, time_points, verbose_flags):
-#     """
-#     Simulates the dynamics of multiple cells using the Gillespie algorithm.
-
-#     Parameters:
-#     -----------
-#     update_propensities : callable
-#         A function that updates the reaction propensities for a given cell population and time.
-#         It should accept three arguments: propensities array, population array, and current time.
-#     update_matrix : numpy.ndarray
-#         A 2D array of shape (n_rxns, n_species) representing the stoichiometric matrix for reactions.
-#         Each row corresponds to a reaction, and each column corresponds to a species.
-#     pop0_mat : numpy.ndarray
-#         A 2D array of shape (n_species, n_cells) representing the initial population of species for each cell.
-#         Each column corresponds to a cell, and each row corresponds to a species.
-#     time_points : numpy.ndarray
-#         A 1D array of time points at which the population samples are recorded.
-#     verbose_flags : numpy.ndarray
-#         A 1D array of flags for each cell to indicate if the simulation encountered issues (e.g., stuck state).
-
-#     Returns:
-#     --------
-#     samples : numpy.ndarray
-#         A 3D array of shape (n_cells, n_time, n_species) containing the simulated population of species
-#         for each cell at each time point. The dimensions correspond to cells, time points, and species.
-
-#     Notes:
-#     ------
-#     - The Gillespie algorithm is used to simulate stochastic dynamics of chemical reactions.
-#     - If a cell's simulation gets stuck (e.g., due to zero total propensity), it will attempt to recover
-#       up to `max_attempts` times before marking the cell as problematic in `verbose_flags`.
-#     - The simulation fills skipped time points with the previous population state to ensure continuity.
-#     """
-#     n_species, n_cells = pop0_mat.shape
-#     n_time = time_points.shape[0]
-#     n_rxns = update_matrix.shape[0]
-#     samples = np.zeros((n_cells, n_time, n_species), dtype=np.int64)
-
-#     for cell in prange(n_cells):
-#         pop = pop0_mat[:, cell].copy()
-#         prev = pop.copy()
-#         t = time_points[0]
-#         samples[cell, 0, :] = pop
-#         i_time = 1
-#         stuck_counter = 0
-#         max_attempts = 10000
-#         prop = np.zeros(n_rxns, dtype=np.float64)
-
-#         while i_time < n_time:
-#             update_propensities(prop, pop, t)
-#             total = prop.sum()
-#             if total <= 0:
-#                 stuck_counter += 1
-#                 if stuck_counter > max_attempts:
-#                     verbose_flags[cell] = 1
-#                     break
-#                 continue
-#             stuck_counter = 0
-#             dt = np.random.exponential(1.0 / total)
-#             q = np.random.rand()
-#             cum = 0.0
-#             for i in range(n_rxns):
-#                 cum += prop[i] / total
-#                 if cum >= q:
-#                     rxn = i
-#                     break
-#             else:
-#                 rxn = n_rxns - 1
-
-#             prev = pop.copy()
-#             for s in range(n_species):
-#                 pop[s] += update_matrix[rxn, s]
-#             t += dt
-
-#             # Fill all previous time points when no event occurred
-#             while i_time < n_time and t >= time_points[i_time]:
-#                 samples[cell, i_time, :] = prev
-#                 i_time += 1
-#     return samples
-
 @numba.njit(parallel=True, fastmath=True)
 def simulate_cells_numba(update_propensities, update_matrix, pop0_mat, time_points, verbose_flags):
     n_species, n_cells = pop0_mat.shape
@@ -558,7 +482,7 @@ def simulate_cells_numba(update_propensities, update_matrix, pop0_mat, time_poin
 
     for cell in prange(n_cells):
         pop = pop0_mat[:, cell].copy()
-        t = 0.0
+        t = time_points[0]
         i_time = 0
         stuck_counter = 0
         max_attempts = 10000
@@ -569,14 +493,14 @@ def simulate_cells_numba(update_propensities, update_matrix, pop0_mat, time_poin
             update_propensities(prop, pop, t)
             total = prop.sum()
 
-            if total <= 1e-12:  # no events possible
+            if total <= 0:  # no events possible
                 stuck_counter += 1
                 if stuck_counter > max_attempts:
                     verbose_flags[cell] = 1
                     samples[cell, i_time:, :] = pop
                     break
                 samples[cell, i_time, :] = pop
-                i_time += 1
+                # i_time += 1
                 continue
 
             stuck_counter = 0
@@ -599,6 +523,8 @@ def simulate_cells_numba(update_propensities, update_matrix, pop0_mat, time_poin
             samples[cell, i_time:, :] = pop
 
     return samples
+
+
 
 
 # %%
@@ -689,7 +615,6 @@ def run_simulation(update_propensities, update_matrix, pop0, time_points, n_cell
     n_species = pop0.shape[0]
     pop0_mat = np.tile(pop0[:, None], (1, n_cells))
     verbose_flags = np.zeros(n_cells, dtype=np.int64)
-    print("Starting simulation with {} cells \n".format(n_cells))
     samples = simulate_cells_numba(update_propensities, update_matrix, pop0_mat, time_points, verbose_flags)
     for cell in range(n_cells):
         if verbose_flags[cell] == 1:
@@ -699,7 +624,7 @@ def run_simulation(update_propensities, update_matrix, pop0, time_points, n_cell
 # --- Worker for a single parameter set ---
 def process_param_set(rows, label, base_config):
     # base_config contains common parameters: paths, p_add_matrix, n_matrix, time_points
-    set_num_threads(6)
+    # set_num_threads(6)
     print(f"[Worker {label}] Using {get_num_threads()} threads for rows={rows}\n")
     # Unpack base_config
     path_to_matrix = base_config['path_to_matrix']
@@ -745,7 +670,7 @@ def process_param_set(rows, label, base_config):
         }
         log_folder = os.path.join(os.path.dirname(base_config['log_file']))
         os.makedirs(log_folder, exist_ok=True)
-        log_file_path = os.path.join(log_folder, f"error_log_{label}.jsonl")
+        log_file_path = os.path.join(log_folder, f"error_log.jsonl")
         with open(log_file_path, "a") as log_file:
             log_file.write(json.dumps(error_record) + "\n")
         
@@ -754,6 +679,7 @@ def process_param_set(rows, label, base_config):
     # 2) Replicate into two to create daughter cells
     final_states = base_samples[:, -1, :]
     del base_samples
+    gc.collect()
     rep_time = np.arange(0, 49, 1)
     pop0_rep = np.concatenate([final_states.T, final_states.T], axis=1)
     rep_samples = simulate_cells_numba(update_prop, update_matrix, pop0_rep, rep_time, np.zeros(2*n_cells, dtype=np.int64))
@@ -766,7 +692,7 @@ def process_param_set(rows, label, base_config):
 
     df_rep['replicate'] = replicate_ids[df_rep['cell_id']]
     df_rep['clone_id'] = clone_ids[df_rep['cell_id']]
-    df_rep['cell_id'] = df_rep.index // len(rep_time)  # optional: restore per-cell unique index
+    df_rep['cell_id'] = df_rep.index // len(rep_time) 
     
     # 4) Save
     timestamp = datetime.now().strftime("%d%m%Y_%H%M%S")
@@ -793,19 +719,8 @@ def process_param_set(rows, label, base_config):
 # --- Main execution with parallel parameter sets ---
 if __name__ == "__main__":
 
-    root = "/projects/b1042/GoyalLab/Keerthana/"
+    # root = "/projects/b1042/GoyalLab/Keerthana/"
     # Base configuration - the commented out lines can be used instead of providing arguments to the file (e.g. if using it as ipynb notebook)
-    base_config = {
-        'time_points': np.arange(0, 2500, 1),
-        'n_cells': 10000,
-        "path_to_matrix": f"{root}/grnInference/simulation_data/median_parameter_simulations/simulation_details/interaction_matrix_A_to_C_B_to_C.txt",
-        "param_csv": f"{root}/grnInference/simulation_data/median_parameter_simulations/simulation_details/median_param_3_gene.csv",
-        "row_to_start": 0,
-        "output_folder": f"{root}//home/mzo5929/Keerthana/grnInference/simulation_data/gillespie_simulation_test/speed_test",
-        "log_file": f"{root}/grnInference/simulation_data/median_parameter_simulations/simulation_details/median_parameter_simulations.jsonl",
-        "type": "A_to_C_B_to_C",  # will be modified per iteration,
-        "number_of_parallel_parameters": 1
-    }
     # base_config = {
     #     'time_points':    np.arange(0, 2500, 1), #Time to reach steady state
     #     'n_cells':        10000, #Before division
@@ -818,7 +733,6 @@ if __name__ == "__main__":
         
     # }
 
-    # # Define 4 parameter sets (rows) and labels
     # # Parse command-line arguments
     # parser = argparse.ArgumentParser(description="Run Gillespie simulation with specified inputs.")
     # parser.add_argument("--matrix_path", type=str, required=True, help="Path to the interaction matrix file.")
@@ -827,21 +741,42 @@ if __name__ == "__main__":
     # parser.add_argument("--output_folder", type=str , required=True, help="Folder to save the simulation.")
     # parser.add_argument("--log_file", type=str , required=True, help="Json file to save log.")
     # parser.add_argument("--type", type=str , required=True, help="Type of regulation.")
+    # parser.add_argument("--number_parallel_processes", type=int , required=False, help="Number of parallel parameter sets to be run at once.")
+    # parser.add_argument("--n_genes", type=int , required=False, help="Number of genes in the system.")
     # args = parser.parse_args()
 
-    # # Update base configuration with parsed arguments
+    # # # Update base configuration with parsed arguments
     # base_config["path_to_matrix"] = args.matrix_path
     # base_config["param_csv"] = args.param_csv
     # base_config["row_to_start"] = int(args.row_to_start)
     # base_config["output_folder"] = args.output_folder
     # base_config["log_file"] = args.log_file
     # base_config["type"] = args.type
-    os.makedirs(base_config["output_folder"], exist_ok = True)
+    # if args.number_parallel_processes:
+    #     base_config["number_parallel_processes"] = args.number_parallel_processes
+    # if args.n_genes:
+    #     base_config["n_genes"] = args.n_genes
+    # os.makedirs(base_config["output_folder"], exist_ok = True)
+    
+    root = "/projects/b1042/GoyalLab/Keerthana/"
+    base_config = {
+    'time_points': np.arange(0, 2500, 10),
+    'n_cells': 5000,
+    "path_to_matrix": f"{root}/grnInference/simulation_data/median_parameter_simulations/simulation_details/interaction_matrix_positive.txt",
+    "param_csv": f"{root}/grnInference/simulation_data/median_parameter_simulations/simulation_details/median_param.csv",
+    "row_to_start": 0,
+    "output_folder": f"{root}//home/mzo5929/Keerthana/grnInference/simulation_data/gillespie_simulation_test/speed_test",
+    "log_file": f"{root}/grnInference/simulation_data/median_parameter_simulations/simulation_details/median_parameter_simulations.jsonl",
+    "type": "A_to_B",  # will be modified per iteration,
+    "number_of_parallel_parameters": 1
+    }   
     df = pd.read_csv(base_config['param_csv'])
 
-    n_genes = base_config.get("n_genes", 3)  # 2 or 3
+    # Read the interaction matrix before using it
+    path_to_matrix = base_config["path_to_matrix"]
+    n_genes, mat = read_input_matrix(path_to_matrix)  # Ensure mat is defined
     start_pair = base_config["row_to_start"]  # row_to_start now refers to pair_id
-    end_pair =start_pair + 2
+    end_pair =start_pair + 1
     print(f"start_pair: {start_pair}, end_pair: {end_pair}")
     row_list = []
     labels = []
@@ -866,3 +801,5 @@ if __name__ == "__main__":
             prefix = fut.result()
             print(f"Completed simulation: {prefix}")
 
+
+# %%
