@@ -16,8 +16,7 @@ import concurrent.futures
 import argparse
 import gc 
 
-set_num_threads(12)
-print("Threads Numba will use:", get_num_threads())
+
 
 # %% Input utilities
 
@@ -579,14 +578,13 @@ def is_steady_state(samples, time_points, mean_tol=0.05, std_tol=0.05,
 
     is_steady = steady_mean_std or steady_slope
 
-    if verbose:
-        print(f"🧪 Steady-state check:")
-        print(f"  ➤ Max relative mean change: {max_mean_change:.4e}")
-        print(f"  ➤ Max relative std  change: {max_std_change:.4e}")
-        print(f"  ➤ Max abs slope:             {max_abs_slope:.4e}")
-        print(f"  ➤ Steady by mean/std:        {steady_mean_std}")
-        print(f"  ➤ Steady by slope:           {steady_slope}")
-        print(f"  ➤ Final decision:            {is_steady}")
+    print(f"🧪 Steady-state check:")
+    print(f"  ➤ Max relative mean change: {max_mean_change:.4e}")
+    print(f"  ➤ Max relative std  change: {max_std_change:.4e}")
+    print(f"  ➤ Max abs slope:             {max_abs_slope:.4e}")
+    print(f"  ➤ Steady by mean/std:        {steady_mean_std}")
+    print(f"  ➤ Steady by slope:           {steady_slope}")
+    print(f"  ➤ Final decision:            {is_steady}")
 
     return is_steady
 
@@ -718,45 +716,46 @@ def process_param_set(rows, label, base_config):
 #%%
 # --- Main execution with parallel parameter sets ---
 if __name__ == "__main__":
-
-    # root = "/projects/b1042/GoyalLab/Keerthana/"
+    set_num_threads(12)
+    print("Threads Numba will use:", get_num_threads())
+    root = "/projects/b1042/GoyalLab/Keerthana/"
     # Base configuration - the commented out lines can be used instead of providing arguments to the file (e.g. if using it as ipynb notebook)
-    # base_config = {
-    #     'time_points':    np.arange(0, 2500, 1), #Time to reach steady state
-    #     'n_cells':        10000, #Before division
-    #     # "path_to_matrix":  "/path/to/interaction/matrix.txt",
-    #     # "param_csv":      "/path/to/parameters.csv",
-    #     # "row_to_start":      0,
-    #     # "output_folder":      "/path/to/output/folder/",
-    #     # "log_file":      "/path/to/log.jsonl",
-    #     # "type":      "A_to_B",
+    base_config = {
+        'time_points':    np.arange(0, 2500, 1), #Time to reach steady state
+        'n_cells':        10000, #Before division
+        # "path_to_matrix":  "/path/to/interaction/matrix.txt",
+        # "param_csv":      "/path/to/parameters.csv",
+        # "row_to_start":      0,
+        # "output_folder":      "/path/to/output/folder/",
+        # "log_file":      "/path/to/log.jsonl",
+        # "type":      "A_to_B",
         
-    # }
+    }
 
-    # # Parse command-line arguments
-    # parser = argparse.ArgumentParser(description="Run Gillespie simulation with specified inputs.")
-    # parser.add_argument("--matrix_path", type=str, required=True, help="Path to the interaction matrix file.")
-    # parser.add_argument("--param_csv", type=str, required=True, help="Path to the parameter CSV file.")
-    # parser.add_argument("--row_to_start", type=int, required=True, help="Row of parameter file to start.")
-    # parser.add_argument("--output_folder", type=str , required=True, help="Folder to save the simulation.")
-    # parser.add_argument("--log_file", type=str , required=True, help="Json file to save log.")
-    # parser.add_argument("--type", type=str , required=True, help="Type of regulation.")
-    # parser.add_argument("--number_parallel_processes", type=int , required=False, help="Number of parallel parameter sets to be run at once.")
-    # parser.add_argument("--n_genes", type=int , required=False, help="Number of genes in the system.")
-    # args = parser.parse_args()
+    # Parse command-line arguments
+    parser = argparse.ArgumentParser(description="Run Gillespie simulation with specified inputs.")
+    parser.add_argument("--matrix_path", type=str, required=True, help="Path to the interaction matrix file.")
+    parser.add_argument("--param_csv", type=str, required=True, help="Path to the parameter CSV file.")
+    parser.add_argument("--row_to_start", type=int, required=True, help="Row of parameter file to start.")
+    parser.add_argument("--output_folder", type=str , required=True, help="Folder to save the simulation.")
+    parser.add_argument("--log_file", type=str , required=True, help="Json file to save log.")
+    parser.add_argument("--type", type=str , required=True, help="Type of regulation.")
+    parser.add_argument("--number_parallel_processes", type=int , required=False, help="Number of parallel parameter sets to be run at once.")
+    parser.add_argument("--n_genes", type=int , required=False, help="Number of genes in the system.")
+    args = parser.parse_args()
 
-    # # # Update base configuration with parsed arguments
-    # base_config["path_to_matrix"] = args.matrix_path
-    # base_config["param_csv"] = args.param_csv
-    # base_config["row_to_start"] = int(args.row_to_start)
-    # base_config["output_folder"] = args.output_folder
-    # base_config["log_file"] = args.log_file
-    # base_config["type"] = args.type
-    # if args.number_parallel_processes:
-    #     base_config["number_parallel_processes"] = args.number_parallel_processes
-    # if args.n_genes:
-    #     base_config["n_genes"] = args.n_genes
-    # os.makedirs(base_config["output_folder"], exist_ok = True)
+    # # Update base configuration with parsed arguments
+    base_config["path_to_matrix"] = args.matrix_path
+    base_config["param_csv"] = args.param_csv
+    base_config["row_to_start"] = int(args.row_to_start)
+    base_config["output_folder"] = args.output_folder
+    base_config["log_file"] = args.log_file
+    base_config["type"] = args.type
+    if args.number_parallel_processes:
+        base_config["number_parallel_processes"] = args.number_parallel_processes
+    if args.n_genes:
+        base_config["n_genes"] = args.n_genes
+    os.makedirs(base_config["output_folder"], exist_ok = True)
     
     root = "/projects/b1042/GoyalLab/Keerthana/"
     base_config = {
