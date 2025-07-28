@@ -792,54 +792,56 @@ def process_param_set(rows, label, base_config):
 #%%
 # --- Main execution with parallel parameter sets ---
 if __name__ == "__main__":
+
+    root = "/projects/b1042/GoyalLab/Keerthana/"
     # Base configuration - the commented out lines can be used instead of providing arguments to the file (e.g. if using it as ipynb notebook)
+    base_config = {
+        'time_points': np.arange(0, 2500, 1),
+        'n_cells': 10000,
+        "path_to_matrix": f"{root}/grnInference/simulation_data/median_parameter_simulations/simulation_details/interaction_matrix_A_to_C_B_to_C.txt",
+        "param_csv": f"{root}/grnInference/simulation_data/median_parameter_simulations/simulation_details/median_param_3_gene.csv",
+        "row_to_start": 0,
+        "output_folder": f"{root}//home/mzo5929/Keerthana/grnInference/simulation_data/gillespie_simulation_test/speed_test",
+        "log_file": f"{root}/grnInference/simulation_data/median_parameter_simulations/simulation_details/median_parameter_simulations.jsonl",
+        "type": "A_to_C_B_to_C",  # will be modified per iteration,
+        "number_of_parallel_parameters": 1
+    }
     # base_config = {
-    #     'time_points':    np.arange(0, 1000, 1), #Time to reach steady state
+    #     'time_points':    np.arange(0, 2500, 1), #Time to reach steady state
     #     'n_cells':        10000, #Before division
-    #     # "path_to_matrix":  "/home/mzo5929/Keerthana/grnInference/simulation_data/general_simulation_data/test_data/matrix101.txt",
-    #     # "param_csv":      "/home/mzo5929/Keerthana/grnInference/simulation_data/gillespie_simulation/sim_details/lhc_sampled_parameters_positive_reg.csv",
+    #     # "path_to_matrix":  "/path/to/interaction/matrix.txt",
+    #     # "param_csv":      "/path/to/parameters.csv",
     #     # "row_to_start":      0,
-    #     # "output_folder":      "/path/to/save/simulation/output",
+    #     # "output_folder":      "/path/to/output/folder/",
     #     # "log_file":      "/path/to/log.jsonl",
     #     # "type":      "A_to_B",
-    #     # 
-    # }
-    base_config = {
-        'time_points':    np.arange(0, 2500, 1), #Time to reach steady state
-        'n_cells':        10000, #Before division
-        # "path_to_matrix":  "/path/to/interaction/matrix.txt",
-        # "param_csv":      "/path/to/parameters.csv",
-        # "row_to_start":      0,
-        # "output_folder":      "/path/to/output/folder/",
-        # "log_file":      "/path/to/log.jsonl",
-        # "type":      "A_to_B",
         
-    }
+    # }
 
-    # Define 4 parameter sets (rows) and labels
-    # Parse command-line arguments
-    parser = argparse.ArgumentParser(description="Run Gillespie simulation with specified inputs.")
-    parser.add_argument("--matrix_path", type=str, required=True, help="Path to the interaction matrix file.")
-    parser.add_argument("--param_csv", type=str, required=True, help="Path to the parameter CSV file.")
-    parser.add_argument("--row_to_start", type=int, required=True, help="Row of parameter file to start.")
-    parser.add_argument("--output_folder", type=str , required=True, help="Folder to save the simulation.")
-    parser.add_argument("--log_file", type=str , required=True, help="Json file to save log.")
-    parser.add_argument("--type", type=str , required=True, help="Type of regulation.")
-    args = parser.parse_args()
+    # # Define 4 parameter sets (rows) and labels
+    # # Parse command-line arguments
+    # parser = argparse.ArgumentParser(description="Run Gillespie simulation with specified inputs.")
+    # parser.add_argument("--matrix_path", type=str, required=True, help="Path to the interaction matrix file.")
+    # parser.add_argument("--param_csv", type=str, required=True, help="Path to the parameter CSV file.")
+    # parser.add_argument("--row_to_start", type=int, required=True, help="Row of parameter file to start.")
+    # parser.add_argument("--output_folder", type=str , required=True, help="Folder to save the simulation.")
+    # parser.add_argument("--log_file", type=str , required=True, help="Json file to save log.")
+    # parser.add_argument("--type", type=str , required=True, help="Type of regulation.")
+    # args = parser.parse_args()
 
-    # Update base configuration with parsed arguments
-    base_config["path_to_matrix"] = args.matrix_path
-    base_config["param_csv"] = args.param_csv
-    base_config["row_to_start"] = int(args.row_to_start)
-    base_config["output_folder"] = args.output_folder
-    base_config["log_file"] = args.log_file
-    base_config["type"] = args.type
+    # # Update base configuration with parsed arguments
+    # base_config["path_to_matrix"] = args.matrix_path
+    # base_config["param_csv"] = args.param_csv
+    # base_config["row_to_start"] = int(args.row_to_start)
+    # base_config["output_folder"] = args.output_folder
+    # base_config["log_file"] = args.log_file
+    # base_config["type"] = args.type
     os.makedirs(base_config["output_folder"], exist_ok = True)
     df = pd.read_csv(base_config['param_csv'])
 
-    n_genes = base_config.get("n_genes", 2)  # 2 or 3
+    n_genes = base_config.get("n_genes", 3)  # 2 or 3
     start_pair = base_config["row_to_start"]  # row_to_start now refers to pair_id
-    end_pair =start_pair + 650
+    end_pair =start_pair + 2
     print(f"start_pair: {start_pair}, end_pair: {end_pair}")
     row_list = []
     labels = []
@@ -854,11 +856,10 @@ if __name__ == "__main__":
             row_list.append(rows[:n_genes])
             labels.append(f"row_{'_'.join(map(str, rows))}")
 
-
     param_sets = list(zip(row_list, labels))
     print(len(param_sets))
     # Use 32 cores split into 4 workers (8 threads each)
-    with concurrent.futures.ProcessPoolExecutor(max_workers=4) as executor:
+    with concurrent.futures.ProcessPoolExecutor(max_workers=1) as executor:
         futures = [executor.submit(process_param_set, rows, label, base_config)
                    for rows, label in param_sets]
         for fut in tqdm(concurrent.futures.as_completed(futures), total=len(futures), desc="Param sets"):  
