@@ -625,8 +625,8 @@ def process_param_set(rows, label, base_config):
     param_csv      = base_config['param_csv']
     # k_add_matrix   = base_config['k_add_matrix']
     # n_matrix       = base_config['n_matrix']
-    time_points    = base_config['time_points']
-    sample_twins_time_points    = base_config['sample_twins_time_points']
+    time_points    = np.arange(0, base_config['steady_state_time'], 1)
+    sample_twins_time_points    = np.arange(0, base_config['twin_sampling_duration'] + base_config['twin_sampling_frequency'], base_config['twin_sampling_frequency']) 
     n_cells        = base_config['n_cells']
 
     # Build reactions and parameters for this row set
@@ -642,7 +642,7 @@ def process_param_set(rows, label, base_config):
             if mat[i, j] != 0:
                 edge = f"{gene_list[i]}_to_{gene_list[j]}"
                 n_matrix[i,j]     = param_dict.get(f"{{n_{edge}}}", 2.0)
-                k_add_matrix[i,j] = param_dict.get(f"{{k_add_{edge}}}", 10.0)
+                k_add_matrix[i,j] = param_dict.get(f"{{k_add_{edge}}}", 6.0)
 
     steady_state, full_param_dict = add_interaction_terms(param_dict, mat, gene_list,
                                                           n_matrix=n_matrix,
@@ -737,8 +737,12 @@ if __name__ == "__main__":
     parser.add_argument("--output_folder", type=str , required=True, help="Folder to save the simulation.")
     parser.add_argument("--log_file", type=str , required=True, help="Json file to save log.")
     parser.add_argument("--type", type=str , required=True, help="Type of regulation.")
-    parser.add_argument("--number_parallel_processes", type=int , required=False, help="Number of parallel parameter sets to be run at once.")
-    parser.add_argument("--n_genes", type=int , required=False, help="Number of genes in the system.")
+    parser.add_argument("--number_parallel_processes", type=int, default=1, required=False, help="Number of parallel parameter sets to be run at once (default: 1).")
+    parser.add_argument("--n_genes", type=int, default=2, required=False, help="Number of genes in the system (default: 2).")
+    parser.add_argument("--n_cells", type=int, default=5000, required=False, help="Number of cells in the system (default: 5000).")
+    parser.add_argument("--steady_state_time", type=int, default=2500, required=False, help="Number of hours to run to achieve steady state (default: 250h0).")
+    parser.add_argument("--twin_sampling_duration", type=int, default=48, required=False, help="Number of hours to run after cell division for collecting twin data (default: 48h).")
+    parser.add_argument("--twin_sampling_frequency", type=int, default=1, required=False, help="The time duration between every twin measurement (default: 1). For example, if it is 1h, then, data is stored eevry hour.")
     args = parser.parse_args()
 
     # # Update base configuration with parsed arguments
@@ -748,31 +752,31 @@ if __name__ == "__main__":
     base_config["output_folder"] = args.output_folder
     base_config["log_file"] = args.log_file
     base_config["type"] = args.type
-    if args.number_parallel_processes:
-        base_config["number_parallel_processes"] = args.number_parallel_processes
-    if args.n_genes:
-        base_config["n_genes"] = args.n_genes
+    base_config["number_parallel_processes"] = args.number_parallel_processes
+    base_config["n_genes"] = args.n_genes
+    base_config["n_cells"] = args.n_cells
+    base_config["steady_state_time"] = args.steady_state_time
+    base_config["twin_sampling_duration"] = args.twin_sampling_duration
+    base_config["twin_sampling_frequency"] = args.twin_sampling_frequency
+
     os.makedirs(base_config["output_folder"], exist_ok = True)
-    
-    root = "/projects/b1042/GoyalLab/Keerthana/"
-    base_config = {
-    'time_points': np.arange(0, 2500, 1),
-    'n_cells': 10000,
-    "path_to_matrix": f"{root}/grnInference/simulation_data/median_parameter_simulations/simulation_details/interaction_matrix_positive.txt",
-    "param_csv": f"{root}/grnInference/simulation_data/median_parameter_simulations/simulation_details/median_param.csv",
-    "row_to_start": 0,
-    "output_folder": f"{root}/grnInference/simulation_data/median_parameter_simulations/new_simulation/",
-    "log_file": f"{root}/grnInference/simulation_data/median_parameter_simulations/simulation_details/median_parameter_simulations.jsonl",
-    "type": "A_to_B",  # will be modified per iteration,
-    "number_of_parallel_parameters": 1
-    }   
-    df = pd.read_csv(base_config['param_csv'])
+    try:
+        df = pd.read_csv(base_config['param_csv'])
+    except FileNotFoundError:
+        print(f"Error: The file {base_config['param_csv']} was not found.")
+        raise
+    except pd.errors.EmptyDataError:
+        print("Error: The file is empty.")
+        raise
+    except Exception as e:
+        print(f"An unexpected error occurred: {e}")
+        raise
 
     # Read the interaction matrix before using it
     path_to_matrix = base_config["path_to_matrix"]
     n_genes, mat = read_input_matrix(path_to_matrix)  # Ensure mat is defined
     start_pair = base_config["row_to_start"]  # row_to_start now refers to pair_id
-    end_pair =start_pair + 1
+    end_pair = start_pair + 650
     print(f"start_pair: {start_pair}, end_pair: {end_pair}")
     row_list = []
     labels = []
