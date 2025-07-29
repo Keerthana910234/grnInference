@@ -95,18 +95,18 @@ def assign_parameters_to_genes(csv_path, gene_list, rows=None):
     print(param_dict)
     return param_dict, pd.DataFrame(param_matrix).T
 
-def generate_reaction_network_from_matrix(interaction_matrix: np.ndarray):
+def generate_reaction_network_from_matrix(connectivity_matrix: np.ndarray):
     """
-    Generate a reaction network from a given interaction matrix.
+    Generate a reaction network from a given connectivity matrix.
 
     This function constructs a reaction network based on gene interactions defined 
-    in the input interaction matrix. It generates reactions for activation, 
-    regulation, inactivation, mRNA production/degradation, and protein production/degradation 
+    in the input connectivity matrix. It generates reactions for gene activation/inactivation, 
+    regulation, mRNA production/degradation, and protein production/degradation 
     for each gene in the network.
 
     Args:
-        interaction_matrix (np.ndarray): A square matrix representing gene interactions. 
-            Each element interaction_matrix[i, j] indicates the regulatory effect of gene i 
+        connectivity_matrix (np.ndarray): A square matrix representing gene interactions. 
+            Each element connectivity_matrix[i, j] indicates the regulatory effect of gene i 
             on gene j. Positive values represent activation, negative values represent 
             repression, and zero indicates no interaction.
 
@@ -120,7 +120,7 @@ def generate_reaction_network_from_matrix(interaction_matrix: np.ndarray):
                 - 'change2': The change in the count of 'species2'.
                 - 'time': Placeholder for reaction time (currently set to "-").
                 - 'propensity': The propensity function for the reaction.
-            - gene_list (List[str]): A list of gene names generated from the interaction matrix.
+            - gene_list (List[str]): A list of gene names generated from the connectivity matrix.
 
     Notes:
         - The propensity functions for reactions are defined using a set of predefined templates.
@@ -129,55 +129,57 @@ def generate_reaction_network_from_matrix(interaction_matrix: np.ndarray):
         - The function aggregates reactions with identical species and changes into a single row 
           with combined propensity functions.
     """
-    n_genes = interaction_matrix.shape[0]
+    n_genes = connectivity_matrix.shape[0]
     gene_list = [f"gene_{i+1}" for i in range(n_genes)]
     prop = {
-        "regulatory": "(({sign}*{k_add})*({activator}_protein**{n})/({k}**{n}+{activator}_protein**{n}))*{target}_I",
-        "activation": "{k_on}*{target}_I",
-        "inactivation": "{k_off}*{target}_A",
-        "mRNA_prod": "{k_prod_mRNA}*{target}_A",
-        "mRNA_deg": "{k_deg_mRNA}*{target}_mRNA",
-        "protein_prod": "{k_prod_protein}*{target}_mRNA",
-        "protein_deg": "{k_deg_protein}*{target}_protein"
+        "regulatory": "(({sign}*{k_add})*({tf}_protein**{n})/({k}**{n}+{tf}_protein**{n}))*{curr_gene}_I",
+        "activation": "{k_on}*{curr_gene}_I",
+        "inactivation": "{k_off}*{curr_gene}_A",
+        "mRNA_prod": "{k_prod_mRNA}*{curr_gene}_A",
+        "mRNA_deg": "{k_deg_mRNA}*{curr_gene}_mRNA",
+        "protein_prod": "{k_prod_protein}*{curr_gene}_mRNA",
+        "protein_deg": "{k_deg_protein}*{curr_gene}_protein"
     }
+
     reactions = []
-    for j, target in enumerate(gene_list):
-        param = lambda p: f"{{{p}_{target}}}"
+    
+    for j, curr_gene in enumerate(gene_list):
+        param = lambda k: f"{{{k}_{curr_gene}}}"
         # activation
-        expr = prop["activation"].replace("{k_on}", param("k_on")).replace("{target}", target)
-        reactions.append({"species1":f"{target}_A","change1":1,
-                          "species2":f"{target}_I","change2":-1,
+        expr = prop["activation"].replace("{k_on}", param("k_on")).replace("{curr_gene}", curr_gene)
+        reactions.append({"species1":f"{curr_gene}_A","change1":1,
+                          "species2":f"{curr_gene}_I","change2":-1,
                           "propensity":expr,"time":"-"})
         # regulation
-        regulators = np.where(interaction_matrix[:,j]!=0)[0]
+        regulators = np.where(connectivity_matrix[:,j]!=0)[0]
         for i in regulators:
             source = gene_list[i]
-            sign = int(np.sign(interaction_matrix[i,j]))
-            edge = f"{source}_to_{target}"
+            sign = int(np.sign(connectivity_matrix[i,j]))
+            edge = f"{source}_to_{curr_gene}"
             expr = prop["regulatory"]\
                 .replace("{sign}",str(sign))\
                 .replace("{k_add}",f"{{k_add_{edge}}}")\
                 .replace("{n}",f"{{n_{edge}}}")\
                 .replace("{k}",f"{{k_{edge}}}")\
-                .replace("{activator}",source)\
-                .replace("{target}",target)
-            reactions.append({"species1":f"{target}_A","change1":1,
-                              "species2":f"{target}_I","change2":-1,
+                .replace("{tf}",source)\
+                .replace("{curr_gene}",curr_gene)
+            reactions.append({"species1":f"{curr_gene}_A","change1":1,
+                              "species2":f"{curr_gene}_I","change2":-1,
                               "propensity":expr,"time":"-"})
         # inactivation
-        expr = prop["inactivation"].replace("{k_off}",param("k_off")).replace("{target}",target)
-        reactions.append({"species1":f"{target}_I","change1":1,
-                          "species2":f"{target}_A","change2":-1,
+        expr = prop["inactivation"].replace("{k_off}",param("k_off")).replace("{curr_gene}",curr_gene)
+        reactions.append({"species1":f"{curr_gene}_I","change1":1,
+                          "species2":f"{curr_gene}_A","change2":-1,
                           "propensity":expr,"time":"-"})
         # production/degradation
         for label,suffix,chg in [
             ("mRNA_prod","mRNA",1),("mRNA_deg","mRNA",-1),
             ("protein_prod","protein",1),("protein_deg","protein",-1)
         ]:
-            expr = prop[label].replace("{target}",target)
+            expr = prop[label].replace("{curr_gene}",curr_gene)
             for p in ["k_prod_mRNA","k_deg_mRNA","k_prod_protein","k_deg_protein"]:
                 expr = expr.replace(f"{{{p}}}",param(p))
-            reactions.append({"species1":f"{target}_{suffix}","change1":chg,
+            reactions.append({"species1":f"{curr_gene}_{suffix}","change1":chg,
                               "species2":"-","change2":"-",
                               "propensity":expr,"time":"-"})
     df = pd.DataFrame(reactions)
@@ -219,7 +221,7 @@ def generate_initial_state_from_genes(gene_list):
         ]
     return pd.DataFrame(states)
 
-def generate_k_from_steady_state_calc(param_dict, interaction_matrix, gene_list,
+def generate_k_from_steady_state_calc(param_dict, connectivity_matrix, gene_list,
                                       target_hill=0.5, scale_k=None):
     """
     Calculate steady-state protein levels and assign rate constants (k values) 
@@ -229,11 +231,11 @@ def generate_k_from_steady_state_calc(param_dict, interaction_matrix, gene_list,
         param_dict (dict): Dictionary containing parameters for gene regulation, 
             including burst probabilities, production rates, degradation rates, 
             and interaction strengths.
-        interaction_matrix (numpy.ndarray): Matrix representing gene interactions, 
+        connectivity_matrix (numpy.ndarray): Matrix representing gene interactions, 
             where non-zero values indicate regulatory relationships and their signs 
             (positive for activation, negative for repression).
         gene_list (list): List of gene names corresponding to the rows and columns 
-            of the interaction matrix.
+            of the connectivity matrix.
         target_hill (float, optional): Hill coefficient used to scale regulatory 
             effects. Default is 0.5.
         scale_k (numpy.ndarray, optional): Scaling matrix for rate constants. If 
@@ -248,7 +250,7 @@ def generate_k_from_steady_state_calc(param_dict, interaction_matrix, gene_list,
     Notes:
         - The function calculates steady-state protein levels based on burst 
           probabilities and production/degradation rates.
-        - Regulatory effects are computed using the interaction matrix and scaled 
+        - Regulatory effects are computed using the connectivity matrix and scaled 
           by the target Hill coefficient (default is 0.5).
         - Rate constants (k values) are assigned based on steady-state protein 
           levels and multiplied by the scaling matrix.
@@ -265,11 +267,11 @@ def generate_k_from_steady_state_calc(param_dict, interaction_matrix, gene_list,
         k_prod_prot = param_dict[f'{{k_prod_protein_{gene}}}']
         k_deg_prot  = param_dict[f'{{k_deg_protein_{gene}}}']
         reg_eff = 0.0
-        regs = np.where(interaction_matrix[:,i]!=0)[0]
+        regs = np.where(connectivity_matrix[:,i]!=0)[0]
         for r in regs:
             edge = f"{gene_list[r]}_to_{gene}"
             k_add = param_dict.get(f"{{k_add_{edge}}}", 0.0)
-            sign = interaction_matrix[r,i]
+            sign = connectivity_matrix[r,i]
             reg_eff += target_hill * k_add * sign
         k_on_eff = k_on + reg_eff
         burst_prob = k_on_eff/(k_on_eff+k_off)
@@ -278,22 +280,22 @@ def generate_k_from_steady_state_calc(param_dict, interaction_matrix, gene_list,
     # assign k values
     for i, src in enumerate(gene_list):
         for j, tgt in enumerate(gene_list):
-            if interaction_matrix[i,j]!=0:
+            if connectivity_matrix[i,j]!=0:
                 key = f"{{k_{src}_to_{tgt}}}"
                 param_dict[key] = protein_levels[i]*scale_k[i,j]
     return protein_levels, param_dict
 
-def add_interaction_terms(param_dict, interaction_matrix, gene_list,
+def add_interaction_terms(param_dict, connectivity_matrix, gene_list,
                           n_matrix=None, k_add_matrix=None):
     """
-    Adds interaction terms to the parameter dictionary based on the interaction matrix 
+    Adds interaction terms to the parameter dictionary based on the connectivity matrix 
     and gene list, and calculates steady-state paramet
     Parameters:
         param_dict (dict): Dictionary to store the interaction parameters.
-        interaction_matrix (numpy.ndarray): Matrix representing interactions between genes.
+        connectivity_matrix (numpy.ndarray): Matrix representing interactions between genes.
                                             Non-zero values indicate an interaction.
         gene_list (list): List of gene names corresponding to the rows and columns of 
-                          the interaction matrix.
+                          the connectivity matrix.
         n_matrix (numpy.ndarray, optional): Matrix specifying the 'n' parameter for each 
                                             interaction. Defaults to a matrix filled with 2.0.
         k_add_matrix (numpy.ndarray, optional): Matrix specifying the 'k_add' parameter for 
@@ -309,11 +311,11 @@ def add_interaction_terms(param_dict, interaction_matrix, gene_list,
         k_add_matrix = np.full((n,n),6.0)
     for i in range(n):
         for j in range(n):
-            if interaction_matrix[i,j]!=0:
+            if connectivity_matrix[i,j]!=0:
                 edge = f"{gene_list[i]}_to_{gene_list[j]}"
                 param_dict[f"{{n_{edge}}}"]     = float(n_matrix[i,j])
                 param_dict[f"{{k_add_{edge}}}"] = float(k_add_matrix[i,j])
-    return generate_k_from_steady_state_calc(param_dict, interaction_matrix, gene_list)
+    return generate_k_from_steady_state_calc(param_dict, connectivity_matrix, gene_list)
 
 def setup_gillespie_params_from_reactions(init_states: pd.DataFrame,
                                           reactions: pd.DataFrame,
@@ -621,24 +623,24 @@ def process_param_set(rows, label, base_config):
     # set_num_threads(6)
     print(f"[Worker {label}] Using {get_num_threads()} threads for rows={rows}\n")
     # Unpack base_config
-    path_to_matrix = base_config['path_to_matrix']
+    path_to_connectivity_matrix = base_config['path_to_connectivity_matrix']
     param_csv      = base_config['param_csv']
     # k_add_matrix   = base_config['k_add_matrix']
     # n_matrix       = base_config['n_matrix']
     time_points    = np.arange(0, base_config['steady_state_time'], 1)
-    sample_twins_time_points    = np.arange(0, base_config['twin_sampling_duration'] + base_config['twin_sampling_frequency'], base_config['twin_sampling_frequency']) 
+    sample_twins_time_points    = np.arange(0, base_config['twin_sampling_duration'] + base_config['twin_measurement_resolution'], base_config['twin_measurement_resolution']) 
     n_cells        = base_config['n_cells']
 
     # Build reactions and parameters for this row set
-    n_genes, mat = read_input_matrix(path_to_matrix)
-    reactions_df, gene_list = generate_reaction_network_from_matrix(mat)
+    n_genes, connectivity_matrix = read_input_matrix(path_to_connectivity_matrix)
+    reactions_df, gene_list = generate_reaction_network_from_matrix(connectivity_matrix)
     init_states = generate_initial_state_from_genes(gene_list)
     param_dict, _ = assign_parameters_to_genes(param_csv, gene_list, rows)
     n_matrix = np.zeros((n_genes, n_genes))
     k_add_matrix = np.zeros((n_genes, n_genes))
     for i in range(n_genes):
         for j in range(n_genes):
-            #Check in the interaction matrix if the edge is a regulation ot not
+            #Check in the connectivity matrix if the edge is a regulation ot not
             if mat[i, j] != 0:
                 edge = f"{gene_list[i]}_to_{gene_list[j]}"
                 n_matrix[i,j]     = param_dict.get(f"{{n_{edge}}}", 2.0)
@@ -731,7 +733,7 @@ if __name__ == "__main__":
 
     # Parse command-line arguments
     parser = argparse.ArgumentParser(description="Run Gillespie simulation with specified inputs.")
-    parser.add_argument("--matrix_path", type=str, required=True, help="Path to the interaction matrix file.")
+    parser.add_argument("--matrix_path", type=str, required=True, help="Path to the connectivity matrix file.")
     parser.add_argument("--param_csv", type=str, required=True, help="Path to the parameter CSV file.")
     parser.add_argument("--row_to_start", type=int, required=True, help="Row of parameter file to start.")
     parser.add_argument("--output_folder", type=str , required=True, help="Folder to save the simulation.")
@@ -746,7 +748,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     # # Update base configuration with parsed arguments
-    base_config["path_to_matrix"] = args.matrix_path
+    base_config["path_to_connectivity_matrix"] = args.matrix_path
     base_config["param_csv"] = args.param_csv
     base_config["row_to_start"] = int(args.row_to_start)
     base_config["output_folder"] = args.output_folder
@@ -772,9 +774,9 @@ if __name__ == "__main__":
         print(f"An unexpected error occurred: {e}")
         raise
 
-    # Read the interaction matrix before using it
-    path_to_matrix = base_config["path_to_matrix"]
-    n_genes, mat = read_input_matrix(path_to_matrix)  # Ensure mat is defined
+    # Read the connectivity matrix before using it
+    path_to_connectivity_matrix = base_config["path_to_connectivity_matrix"]
+    n_genes, mat = read_input_matrix(path_to_connectivity_matrix)  # Ensure mat is defined
     start_pair = base_config["row_to_start"]  # row_to_start now refers to pair_id
     end_pair = start_pair + 650
     print(f"start_pair: {start_pair}, end_pair: {end_pair}")
