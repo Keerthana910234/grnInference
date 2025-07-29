@@ -43,6 +43,7 @@ def read_input_matrix(path_to_matrix: str) -> (int, np.ndarray):
     except Exception as e:
         raise ValueError(f"Error loading matrix from {path_to_matrix}: {e}")
 
+
 def assign_parameters_to_genes(csv_path, gene_list, rows=None):
     """
     Assigns parameters to a list of genes based on values from a CSV file.
@@ -62,21 +63,16 @@ def assign_parameters_to_genes(csv_path, gene_list, rows=None):
                                Defaults to None.
 
     Returns:
-        tuple: A tuple containing:
-            - param_dict (dict): A dictionary mapping parameter names (formatted 
+            param_dict (dict): A dictionary mapping parameter names (formatted 
                                  as "{parameter_gene}") to their values.
-            - param_matrix (pd.DataFrame): A DataFrame where rows correspond to 
-                                           genes and columns correspond to parameter values.
     """
     try:
         df = pd.read_csv(csv_path, index_col=0)
     except FileNotFoundError:
         raise ValueError(f"Parameter csv file not found at path: {csv_path}")
     n = len(gene_list)
-    if rows is None:
-        rows = np.random.choice(df.index, size=n, replace=True)
+    
     param_dict = {}
-    param_matrix = {}
     for i,row in enumerate(rows):
         gene = gene_list[i]
         if int(row) in df.index:
@@ -86,14 +82,13 @@ def assign_parameters_to_genes(csv_path, gene_list, rows=None):
         vals["k_deg_mRNA"] = np.log(2)/vals["mrna_half_life"]
         vals["k_deg_protein"] = np.log(2)/vals["protein_half_life"]
         vals.drop(["mrna_half_life","protein_half_life"],axis=0,inplace=True,errors="ignore")
-        param_matrix[gene] = vals
         for k, v in vals.items():
             if "_to_" in k:
                 param_dict[f"{{{k}}}"] = float(v)  # Interaction parameter: keep as is
             else:
                 param_dict[f"{{{k}_{gene}}}"] = float(v)  # Gene-specific parameter
-    print(param_dict)
-    return param_dict, pd.DataFrame(param_matrix).T
+    return param_dict
+
 
 def generate_reaction_network_from_matrix(connectivity_matrix: np.ndarray):
     """
@@ -151,17 +146,17 @@ def generate_reaction_network_from_matrix(connectivity_matrix: np.ndarray):
                           "species2":f"{curr_gene}_I","change2":-1,
                           "propensity":expr,"time":"-"})
         # regulation
-        regulators = np.where(connectivity_matrix[:,j]!=0)[0]
-        for i in regulators:
-            source = gene_list[i]
+        regulators_index = np.where(connectivity_matrix[:,j]!=0)[0]
+        for i in regulators_index:
+            regulator = gene_list[i]
             sign = int(np.sign(connectivity_matrix[i,j]))
-            edge = f"{source}_to_{curr_gene}"
+            edge = f"{regulator}_to_{curr_gene}"
             expr = prop["regulatory"]\
                 .replace("{sign}",str(sign))\
                 .replace("{k_add}",f"{{k_add_{edge}}}")\
                 .replace("{n}",f"{{n_{edge}}}")\
                 .replace("{k}",f"{{k_{edge}}}")\
-                .replace("{tf}",source)\
+                .replace("{tf}",regulator)\
                 .replace("{curr_gene}",curr_gene)
             reactions.append({"species1":f"{curr_gene}_A","change1":1,
                               "species2":f"{curr_gene}_I","change2":-1,
@@ -177,8 +172,8 @@ def generate_reaction_network_from_matrix(connectivity_matrix: np.ndarray):
             ("protein_prod","protein",1),("protein_deg","protein",-1)
         ]:
             expr = prop[label].replace("{curr_gene}",curr_gene)
-            for p in ["k_prod_mRNA","k_deg_mRNA","k_prod_protein","k_deg_protein"]:
-                expr = expr.replace(f"{{{p}}}",param(p))
+            for k in ["k_prod_mRNA","k_deg_mRNA","k_prod_protein","k_deg_protein"]:
+                expr = expr.replace(f"{{{k}}}",param(k))
             reactions.append({"species1":f"{curr_gene}_{suffix}","change1":chg,
                               "species2":"-","change2":"-",
                               "propensity":expr,"time":"-"})
@@ -323,7 +318,7 @@ def setup_gillespie_params_from_reactions(init_states: pd.DataFrame,
     """
     Sets up the parameters required for Gillespie simulation based on initial states, reaction definitions, 
     and a parameter dictionary. This function generates the initial population, update matrix, 
-    and a compiled function for updating prope
+    and a compiled function for updating propensities
     Args:
         init_states (pd.DataFrame): A DataFrame containing the initial states of species. 
                                     Must include columns 'species' and 'count'.
@@ -383,65 +378,6 @@ def setup_gillespie_params_from_reactions(init_states: pd.DataFrame,
     exec(ns, {'numba':numba}, loc)
     return pop0, np.array(update_matrix, dtype=np.int64), loc['update_propensities'], species_index
 
-# %% SSA core JIT
-@numba.njit(fastmath=True)
-def sample_discrete(probs):
-    """
-    Samples an index from a discrete probability distribution.
-
-    This function takes an array of probabilities and returns an index
-    sampled according to the given probabilities. The probabilities should
-    sum to 1.
-
-    Args:
-        probs (numpy.ndarray): A 1D array of probabilities representing the 
-            discrete probability distribution. Each element in the array 
-            corresponds to the probability of selecting the respective index.
-
-    Returns:
-        int: The index sampled based on the given probabilities.
-    """
-    q = np.random.rand()
-    cum = 0.0
-    for i in range(probs.shape[0]):
-        cum += probs[i]
-        if cum >= q:
-            return i
-    return probs.shape[0]-1
-
-@numba.njit(fastmath=True)
-def gillespie_draw(prop_func, prop, pop, t):
-    
-    """
-    Calculates the event that has to occur and the time it takes.
-
-    This function determines the next event in a stochastic simulation based on the Gillespie algorithm. It uses the provided propensity function to calculate the propensities, selects an event based on the cumulative distribution of propensities, and computes the time until the next event.
-
-    Args:
-        prop_func (function): A function that calculates the propensities given the current state.
-        prop (numpy.ndarray): Array of propensities for each possible event.
-        pop (numpy.ndarray): Current population state.
-        t (float): Current simulation time.
-    Returns:
-        tuple:
-            - int: Index of the event to occur (-1 if no event occurs).
-            - float: Time until the next event (-1.0 if no event occurs).
-    """
-    prop_func(prop, pop, t)
-    total = 0.0
-    for r in range(prop.shape[0]):
-        total += prop[r]
-    if total <= 0:
-        return -1, -1.0
-    dt = np.random.exponential(1.0 / total)
-    q = np.random.rand()
-    cum = 0.0
-    for r in range(prop.shape[0]):
-        cum += prop[r] / total
-        if cum >= q:
-            return r, dt
-    return prop.shape[0] - 1, dt
-
 # %% Vectorized extraction
 
 def convert_samples_to_df(samples: np.ndarray, species_index: dict,
@@ -473,20 +409,20 @@ def convert_samples_to_df(samples: np.ndarray, species_index: dict,
     return df
 
 @numba.njit(parallel=True, fastmath=True)
-def simulate_cells_numba(update_propensities, update_matrix, pop0_mat, time_points, verbose_flags):
+def gillespie_simulation_all_cells(update_propensities, update_matrix, pop0_mat, time_points, verbose_flags):
     n_species, n_cells = pop0_mat.shape
-    n_time = time_points.shape[0]
+    n_time = time_points.shape[0] #Number of time points to sample
     n_rxns = update_matrix.shape[0]
     samples = np.empty((n_cells, n_time, n_species), dtype=np.int64)
 
     for cell in prange(n_cells):
         pop = pop0_mat[:, cell].copy()
         t = time_points[0]
-        i_time = 0
+        i_time = 0 #This is the index of current time point in the time_points array (starts at 0)
         stuck_counter = 0
         max_attempts = 10000
         prop = np.zeros(n_rxns, dtype=np.float64)
-        next_tp = time_points[0]
+        next_tp = time_points[0] #This is the next time point where sample will be measured
 
         while i_time < n_time:
             update_propensities(prop, pop, t)
@@ -503,24 +439,20 @@ def simulate_cells_numba(update_propensities, update_matrix, pop0_mat, time_poin
                 continue
 
             stuck_counter = 0
-            dt = np.random.exponential(1.0 / total)
-            t += dt
+            reaction_time = np.random.exponential(1.0 / total)
+            t += reaction_time
 
-            # Fill skipped time points in batch
-            while i_time < n_time and t >= next_tp:
+
+            while i_time < n_time and t >= next_tp: #Check if we crossed a sampling time - save as needed
                 samples[cell, i_time, :] = pop
                 i_time += 1
-                if i_time < n_time:
+                if i_time < n_time: #updating next time point only if simulation total time is not over
                     next_tp = time_points[i_time]
 
             # Vectorized reaction selection
             cum_props = np.cumsum(prop)
             r = np.searchsorted(cum_props, np.random.rand() * total)
             pop += update_matrix[r]
-        # Ensure final state filled
-        if i_time < n_time:
-            samples[cell, i_time:, :] = pop
-
     return samples
 
 
@@ -604,14 +536,14 @@ def run_simulation(update_propensities, update_matrix, pop0, time_points, n_cell
                        Shape: [n_species, len(time_points), n_cells].
 
     Notes:
-        - The function uses a JIT-compiled helper function `simulate_cells_numba` for efficient simulation.
+        - The function uses a JIT-compiled helper function `gillespie_simulation_all_cells` for efficient simulation.
         - Warnings are printed for cells that encounter issues during simulation:
             - Cell stuck due to zero propensities for too long.
     """
     n_species = pop0.shape[0]
     pop0_mat = np.tile(pop0[:, None], (1, n_cells))
     verbose_flags = np.zeros(n_cells, dtype=np.int64)
-    samples = simulate_cells_numba(update_propensities, update_matrix, pop0_mat, time_points, verbose_flags)
+    samples = gillespie_simulation_all_cells(update_propensities, update_matrix, pop0_mat, time_points, verbose_flags)
     for cell in range(n_cells):
         if verbose_flags[cell] == 1:
             print(f"⚠️ WARNING: Cell {cell} got stuck (zero propensities).")
@@ -679,7 +611,7 @@ def process_param_set(rows, label, base_config):
     gc.collect()
     rep_time = sample_twins_time_points
     pop0_rep = np.concatenate([final_states.T, final_states.T], axis=1)
-    rep_samples = simulate_cells_numba(update_prop, update_matrix, pop0_rep, rep_time, np.zeros(2*n_cells, dtype=np.int64))
+    rep_samples = gillespie_simulation_all_cells(update_prop, update_matrix, pop0_rep, rep_time, np.zeros(2*n_cells, dtype=np.int64))
     
     # 3) Extract from simulation and label
     df_rep = convert_samples_to_df(rep_samples, species_index)
