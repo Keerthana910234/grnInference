@@ -16,8 +16,6 @@ import concurrent.futures
 import argparse
 import gc 
 
-
-
 # %% Input utilities
 
 def read_input_matrix(path_to_matrix: str) -> (int, np.ndarray):
@@ -85,8 +83,8 @@ def assign_parameters_to_genes(csv_path, gene_list, rows=None):
             vals = df.loc[int(row)].copy()
         else:
             raise KeyError(f"Row index {int(row)} not found in the DataFrame.")
-        vals["p_deg_mRNA"] = np.log(2)/vals["mrna_half_life"]
-        vals["p_deg_protein"] = np.log(2)/vals["protein_half_life"]
+        vals["k_deg_mRNA"] = np.log(2)/vals["mrna_half_life"]
+        vals["k_deg_protein"] = np.log(2)/vals["protein_half_life"]
         vals.drop(["mrna_half_life","protein_half_life"],axis=0,inplace=True,errors="ignore")
         param_matrix[gene] = vals
         for k, v in vals.items():
@@ -134,19 +132,19 @@ def generate_reaction_network_from_matrix(interaction_matrix: np.ndarray):
     n_genes = interaction_matrix.shape[0]
     gene_list = [f"gene_{i+1}" for i in range(n_genes)]
     prop = {
-        "regulatory": "(({sign}*{p_add})*({activator}_protein**{n})/({k}**{n}+{activator}_protein**{n}))*{target}_I",
-        "activation": "{p_on}*{target}_I",
-        "inactivation": "{p_off}*{target}_A",
-        "mRNA_prod": "{p_prod_mRNA}*{target}_A",
-        "mRNA_deg": "{p_deg_mRNA}*{target}_mRNA",
-        "protein_prod": "{p_prod_protein}*{target}_mRNA",
-        "protein_deg": "{p_deg_protein}*{target}_protein"
+        "regulatory": "(({sign}*{k_add})*({activator}_protein**{n})/({k}**{n}+{activator}_protein**{n}))*{target}_I",
+        "activation": "{k_on}*{target}_I",
+        "inactivation": "{k_off}*{target}_A",
+        "mRNA_prod": "{k_prod_mRNA}*{target}_A",
+        "mRNA_deg": "{k_deg_mRNA}*{target}_mRNA",
+        "protein_prod": "{k_prod_protein}*{target}_mRNA",
+        "protein_deg": "{k_deg_protein}*{target}_protein"
     }
     reactions = []
     for j, target in enumerate(gene_list):
         param = lambda p: f"{{{p}_{target}}}"
         # activation
-        expr = prop["activation"].replace("{p_on}", param("p_on")).replace("{target}", target)
+        expr = prop["activation"].replace("{k_on}", param("k_on")).replace("{target}", target)
         reactions.append({"species1":f"{target}_A","change1":1,
                           "species2":f"{target}_I","change2":-1,
                           "propensity":expr,"time":"-"})
@@ -158,7 +156,7 @@ def generate_reaction_network_from_matrix(interaction_matrix: np.ndarray):
             edge = f"{source}_to_{target}"
             expr = prop["regulatory"]\
                 .replace("{sign}",str(sign))\
-                .replace("{p_add}",f"{{p_add_{edge}}}")\
+                .replace("{k_add}",f"{{k_add_{edge}}}")\
                 .replace("{n}",f"{{n_{edge}}}")\
                 .replace("{k}",f"{{k_{edge}}}")\
                 .replace("{activator}",source)\
@@ -167,7 +165,7 @@ def generate_reaction_network_from_matrix(interaction_matrix: np.ndarray):
                               "species2":f"{target}_I","change2":-1,
                               "propensity":expr,"time":"-"})
         # inactivation
-        expr = prop["inactivation"].replace("{p_off}",param("p_off")).replace("{target}",target)
+        expr = prop["inactivation"].replace("{k_off}",param("k_off")).replace("{target}",target)
         reactions.append({"species1":f"{target}_I","change1":1,
                           "species2":f"{target}_A","change2":-1,
                           "propensity":expr,"time":"-"})
@@ -177,7 +175,7 @@ def generate_reaction_network_from_matrix(interaction_matrix: np.ndarray):
             ("protein_prod","protein",1),("protein_deg","protein",-1)
         ]:
             expr = prop[label].replace("{target}",target)
-            for p in ["p_prod_mRNA","p_deg_mRNA","p_prod_protein","p_deg_protein"]:
+            for p in ["k_prod_mRNA","k_deg_mRNA","k_prod_protein","k_deg_protein"]:
                 expr = expr.replace(f"{{{p}}}",param(p))
             reactions.append({"species1":f"{target}_{suffix}","change1":chg,
                               "species2":"-","change2":"-",
@@ -260,23 +258,23 @@ def generate_k_from_steady_state_calc(param_dict, interaction_matrix, gene_list,
         scale_k = np.ones((n_genes, n_genes))
     protein_levels = np.zeros(n_genes)
     for i,gene in enumerate(gene_list):
-        p_on = param_dict[f'{{p_on_{gene}}}']
-        p_off = param_dict[f'{{p_off_{gene}}}']
-        p_prod_mRNA = param_dict[f'{{p_prod_mRNA_{gene}}}']
-        p_deg_mRNA  = param_dict[f'{{p_deg_mRNA_{gene}}}']
-        p_prod_prot = param_dict[f'{{p_prod_protein_{gene}}}']
-        p_deg_prot  = param_dict[f'{{p_deg_protein_{gene}}}']
+        k_on = param_dict[f'{{k_on_{gene}}}']
+        k_off = param_dict[f'{{k_off_{gene}}}']
+        k_prod_mRNA = param_dict[f'{{k_prod_mRNA_{gene}}}']
+        k_deg_mRNA  = param_dict[f'{{k_deg_mRNA_{gene}}}']
+        k_prod_prot = param_dict[f'{{k_prod_protein_{gene}}}']
+        k_deg_prot  = param_dict[f'{{k_deg_protein_{gene}}}']
         reg_eff = 0.0
         regs = np.where(interaction_matrix[:,i]!=0)[0]
         for r in regs:
             edge = f"{gene_list[r]}_to_{gene}"
-            p_add = param_dict.get(f"{{p_add_{edge}}}", 0.0)
+            k_add = param_dict.get(f"{{k_add_{edge}}}", 0.0)
             sign = interaction_matrix[r,i]
-            reg_eff += target_hill * p_add * sign
-        p_on_eff = p_on + reg_eff
-        burst_prob = p_on_eff/(p_on_eff+p_off)
-        m = p_prod_mRNA * burst_prob / p_deg_mRNA
-        protein_levels[i] = max(m * p_prod_prot / p_deg_prot, 0.1)
+            reg_eff += target_hill * k_add * sign
+        k_on_eff = k_on + reg_eff
+        burst_prob = k_on_eff/(k_on_eff+k_off)
+        m = k_prod_mRNA * burst_prob / k_deg_mRNA
+        protein_levels[i] = max(m * k_prod_prot / k_deg_prot, 0.1)
     # assign k values
     for i, src in enumerate(gene_list):
         for j, tgt in enumerate(gene_list):
@@ -286,7 +284,7 @@ def generate_k_from_steady_state_calc(param_dict, interaction_matrix, gene_list,
     return protein_levels, param_dict
 
 def add_interaction_terms(param_dict, interaction_matrix, gene_list,
-                          n_matrix=None, p_add_matrix=None):
+                          n_matrix=None, k_add_matrix=None):
     """
     Adds interaction terms to the parameter dictionary based on the interaction matrix 
     and gene list, and calculates steady-state paramet
@@ -298,7 +296,7 @@ def add_interaction_terms(param_dict, interaction_matrix, gene_list,
                           the interaction matrix.
         n_matrix (numpy.ndarray, optional): Matrix specifying the 'n' parameter for each 
                                             interaction. Defaults to a matrix filled with 2.0.
-        p_add_matrix (numpy.ndarray, optional): Matrix specifying the 'p_add' parameter for 
+        k_add_matrix (numpy.ndarray, optional): Matrix specifying the 'k_add' parameter for 
                                                 each interaction. Defaults to a matrix filled 
                                                 with 1
     Returns:
@@ -307,14 +305,14 @@ def add_interaction_terms(param_dict, interaction_matrix, gene_list,
     n = len(gene_list)
     if n_matrix is None:
         n_matrix = np.full((n,n),2.0)
-    if p_add_matrix is None:
-        p_add_matrix = np.full((n,n),6.0)
+    if k_add_matrix is None:
+        k_add_matrix = np.full((n,n),6.0)
     for i in range(n):
         for j in range(n):
             if interaction_matrix[i,j]!=0:
                 edge = f"{gene_list[i]}_to_{gene_list[j]}"
                 param_dict[f"{{n_{edge}}}"]     = float(n_matrix[i,j])
-                param_dict[f"{{p_add_{edge}}}"] = float(p_add_matrix[i,j])
+                param_dict[f"{{k_add_{edge}}}"] = float(k_add_matrix[i,j])
     return generate_k_from_steady_state_calc(param_dict, interaction_matrix, gene_list)
 
 def setup_gillespie_params_from_reactions(init_states: pd.DataFrame,
@@ -524,8 +522,6 @@ def simulate_cells_numba(update_propensities, update_matrix, pop0_mat, time_poin
     return samples
 
 
-
-
 # %%
 # Check for steady state
 def is_steady_state(samples, time_points, mean_tol=0.05, std_tol=0.05,
@@ -621,15 +617,16 @@ def run_simulation(update_propensities, update_matrix, pop0, time_points, n_cell
 
 # --- Worker for a single parameter set ---
 def process_param_set(rows, label, base_config):
-    # base_config contains common parameters: paths, p_add_matrix, n_matrix, time_points
+    # base_config contains common parameters: paths, k_add_matrix, n_matrix, time_points
     # set_num_threads(6)
     print(f"[Worker {label}] Using {get_num_threads()} threads for rows={rows}\n")
     # Unpack base_config
     path_to_matrix = base_config['path_to_matrix']
     param_csv      = base_config['param_csv']
-    # p_add_matrix   = base_config['p_add_matrix']
+    # k_add_matrix   = base_config['k_add_matrix']
     # n_matrix       = base_config['n_matrix']
     time_points    = base_config['time_points']
+    sample_twins_time_points    = base_config['sample_twins_time_points']
     n_cells        = base_config['n_cells']
 
     # Build reactions and parameters for this row set
@@ -638,18 +635,18 @@ def process_param_set(rows, label, base_config):
     init_states = generate_initial_state_from_genes(gene_list)
     param_dict, _ = assign_parameters_to_genes(param_csv, gene_list, rows)
     n_matrix = np.zeros((n_genes, n_genes))
-    p_add_matrix = np.zeros((n_genes, n_genes))
+    k_add_matrix = np.zeros((n_genes, n_genes))
     for i in range(n_genes):
         for j in range(n_genes):
             #Check in the interaction matrix if the edge is a regulation ot not
             if mat[i, j] != 0:
                 edge = f"{gene_list[i]}_to_{gene_list[j]}"
                 n_matrix[i,j]     = param_dict.get(f"{{n_{edge}}}", 2.0)
-                p_add_matrix[i,j] = param_dict.get(f"{{p_add_{edge}}}", 10.0)
+                k_add_matrix[i,j] = param_dict.get(f"{{k_add_{edge}}}", 10.0)
 
     steady_state, full_param_dict = add_interaction_terms(param_dict, mat, gene_list,
                                                           n_matrix=n_matrix,
-                                                          p_add_matrix=p_add_matrix)
+                                                          k_add_matrix=k_add_matrix)
 
     pop0, update_matrix, update_prop, species_index = setup_gillespie_params_from_reactions(
         init_states, reactions_df, full_param_dict)
@@ -672,13 +669,13 @@ def process_param_set(rows, label, base_config):
         with open(log_file_path, "a") as log_file:
             log_file.write(json.dumps(error_record) + "\n")
         
-    # df_base = convert_samples_to_df(base_samples, species_index)
+    df_base = convert_samples_to_df(base_samples, species_index)
     
     # 2) Replicate into two to create daughter cells
     final_states = base_samples[:, -1, :]
     del base_samples
     gc.collect()
-    rep_time = np.arange(0, 49, 1)
+    rep_time = sample_twins_time_points
     pop0_rep = np.concatenate([final_states.T, final_states.T], axis=1)
     rep_samples = simulate_cells_numba(update_prop, update_matrix, pop0_rep, rep_time, np.zeros(2*n_cells, dtype=np.int64))
     
@@ -698,7 +695,7 @@ def process_param_set(rows, label, base_config):
     prefix = f"{label}_{timestamp}_ncells_{n_cells}_{base_config['type']}_{id}"
     df_rep.to_csv(f"{base_config['output_folder']}/df_{prefix}.csv", index=False)
     # np.savetxt(f"{base_config['output_folder']}/samples_{prefix}.csv", rep_samples.reshape(2*n_cells, -1), delimiter=",")
-    # df_base.to_csv(f"{base_config['output_folder']}/test_df_{prefix}.csv", index=False)
+    df_base.to_csv(f"{base_config['output_folder']}/test_df_{prefix}.csv", index=False)
     record = {
         "id": id,
         "rows": rows,
@@ -759,12 +756,12 @@ if __name__ == "__main__":
     
     root = "/projects/b1042/GoyalLab/Keerthana/"
     base_config = {
-    'time_points': np.arange(0, 2500, 10),
-    'n_cells': 5000,
+    'time_points': np.arange(0, 2500, 1),
+    'n_cells': 10000,
     "path_to_matrix": f"{root}/grnInference/simulation_data/median_parameter_simulations/simulation_details/interaction_matrix_positive.txt",
     "param_csv": f"{root}/grnInference/simulation_data/median_parameter_simulations/simulation_details/median_param.csv",
     "row_to_start": 0,
-    "output_folder": f"{root}//home/mzo5929/Keerthana/grnInference/simulation_data/gillespie_simulation_test/speed_test",
+    "output_folder": f"{root}/grnInference/simulation_data/median_parameter_simulations/new_simulation/",
     "log_file": f"{root}/grnInference/simulation_data/median_parameter_simulations/simulation_details/median_parameter_simulations.jsonl",
     "type": "A_to_B",  # will be modified per iteration,
     "number_of_parallel_parameters": 1
@@ -799,6 +796,3 @@ if __name__ == "__main__":
         for fut in tqdm(concurrent.futures.as_completed(futures), total=len(futures), desc="Param sets"):  
             prefix = fut.result()
             print(f"Completed simulation: {prefix}")
-
-
-# %%
