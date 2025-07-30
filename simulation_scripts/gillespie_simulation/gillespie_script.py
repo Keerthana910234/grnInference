@@ -278,6 +278,7 @@ def generate_k_from_steady_state_calc(param_dict, connectivity_matrix, gene_list
             if connectivity_matrix[i,j]!=0:
                 key = f"{{k_{src}_to_{tgt}}}"
                 param_dict[key] = protein_levels[i]*scale_k[i,j]
+    print(param_dict)
     return protein_levels, param_dict
 
 def add_interaction_terms(param_dict, connectivity_matrix, gene_list,
@@ -559,32 +560,32 @@ def process_param_set(rows, label, base_config):
     param_csv      = base_config['param_csv']
     # k_add_matrix   = base_config['k_add_matrix']
     # n_matrix       = base_config['n_matrix']
-    time_points    = np.arange(0, base_config['steady_state_time'], 1)
-    sample_twins_time_points    = np.arange(0, base_config['twin_sampling_duration'] + base_config['twin_measurement_resolution'], base_config['twin_measurement_resolution']) 
+    time_points    = np.arange(0, base_config['simulation_time_before_division'], 1)
+    sample_twins_time_points    = np.arange(0, base_config['twin_simulation_time_after_division'] + base_config['twin_measurement_resolution'], base_config['twin_measurement_resolution']) 
     n_cells        = base_config['n_cells']
 
     # Build reactions and parameters for this row set
     n_genes, connectivity_matrix = read_input_matrix(path_to_connectivity_matrix)
     reactions_df, gene_list = generate_reaction_network_from_matrix(connectivity_matrix)
     init_states = generate_initial_state_from_genes(gene_list)
-    param_dict, _ = assign_parameters_to_genes(param_csv, gene_list, rows)
+    param_dict = assign_parameters_to_genes(param_csv, gene_list, rows)
     n_matrix = np.zeros((n_genes, n_genes))
     k_add_matrix = np.zeros((n_genes, n_genes))
     for i in range(n_genes):
         for j in range(n_genes):
             #Check in the connectivity matrix if the edge is a regulation ot not
-            if mat[i, j] != 0:
+            if connectivity_matrix[i, j] != 0:
                 edge = f"{gene_list[i]}_to_{gene_list[j]}"
                 n_matrix[i,j]     = param_dict.get(f"{{n_{edge}}}", 2.0)
                 k_add_matrix[i,j] = param_dict.get(f"{{k_add_{edge}}}", 6.0)
-
-    steady_state, full_param_dict = add_interaction_terms(param_dict, mat, gene_list,
+    print("Done until addition of interaction terms")
+    steady_state, full_param_dict = add_interaction_terms(param_dict, connectivity_matrix, gene_list,
                                                           n_matrix=n_matrix,
                                                           k_add_matrix=k_add_matrix)
 
     pop0, update_matrix, update_prop, species_index = setup_gillespie_params_from_reactions(
         init_states, reactions_df, full_param_dict)
-
+    print("Starting base simulation")
     # 1) Run base simulation
     base_samples = run_simulation(update_prop, update_matrix, pop0, time_points, n_cells)
     if not is_steady_state(base_samples, time_points):
@@ -642,7 +643,7 @@ def process_param_set(rows, label, base_config):
     os.makedirs(os.path.dirname(base_config['log_file']), exist_ok=True)
     with open(base_config['log_file'],"a") as f:
         f.write(json.dumps(record) + "\n")
-    return prefix
+    return f"{base_config['output_folder']}/df_{prefix}.csv"
 
 #%%
 # --- Main execution with parallel parameter sets ---
@@ -663,14 +664,33 @@ if __name__ == "__main__":
         
     }
 
+    import numpy as np
+    root = "/home/mzo5929/Keerthana/grnInference/"
+
+    base_config = {
+        'n_cells': 1000, #Number of cells before division (number of twin pairs)
+        'simulation_time_before_division': 1000, #The time used to run the initial cells before division. User must set this time to ensure the population reaches steady state [hours]
+        'twin_simulation_time_after_division': 48, #The time twin cells are simulated after division and measurements are stored in the output[hours]
+        'twin_measurement_resolution': 1, #The time between each measurement of twin cells [hours]. For example, if twin_sampling_duration is 12 and twin_measurement_resolution is 1, the final dataframe will contain hourly measurements for 12 hours (0 is birth).
+        "path_to_connectivity_matrix": f"{root}/simulation_data/median_parameter_simulations/simulation_details/interaction_matrix_A_to_B_A_to_C.txt", #path to the connectivity matrix specifying the GRN to simulate
+        "param_csv": f"{root}/simulation_data/median_parameter_simulations/simulation_details/median_param_3_gene.csv", #Path to the parameters for all genes and interaction terms
+        "rows_to_use": [[0, 1, 2]], #Rows in the parameter's csv file for each gene - the length should be equal to number of genes in the system
+        "output_folder": f"{root}/simulation_data/median_parameter_simulations/new_simulation", #Path to folder to store simulation 
+        "log_file": f"{root}/simulation_data/median_parameter_simulations/simulation_details/median_parameter_simulations.jsonl", #Path to the log file
+        "type": "Fan_out",  # Name of the network used -- will be in the filename
+        "number_of_parallel_parameters": 1, #Number of parameters to be run in parallel
+        "number_of_cores_per_parameter": 8 #Number of cores to be used per parameter (number_of_parallel_parameters * number_of_cores_per_parameter = number of cores in your computer)
+    }
+
+
     # Parse command-line arguments
     parser = argparse.ArgumentParser(description="Run Gillespie simulation with specified inputs.")
-    parser.add_argument("--matrix_path", type=str, required=True, help="Path to the connectivity matrix file.")
-    parser.add_argument("--param_csv", type=str, required=True, help="Path to the parameter CSV file.")
-    parser.add_argument("--row_to_start", type=int, required=True, help="Row of parameter file to start.")
-    parser.add_argument("--output_folder", type=str , required=True, help="Folder to save the simulation.")
+    parser.add_argument("--path_to_connectivity_matrix", type=str, required=True, help="Path to the connectivity matrix file specifying the GRN to simulate.")
+    parser.add_argument("--param_csv", type=str, required=True, help="Path to the parameters for all genes and interaction terms.")
+    parser.add_argument("--row_to_start", type=int, required=True, help="Row of parameter file to start for this batch of simulations.")
+    parser.add_argument("--output_folder", type=str , required=True, help="Path to output folder to store simulation.")
     parser.add_argument("--log_file", type=str , required=True, help="Json file to save log.")
-    parser.add_argument("--type", type=str , required=True, help="Type of regulation.")
+    parser.add_argument("--type", type=str , required=True, help="Name of the network used -- will be in the filename.")
     parser.add_argument("--number_parallel_processes", type=int, default=1, required=False, help="Number of parallel parameter sets to be run at once (default: 1).")
     parser.add_argument("--n_genes", type=int, default=2, required=False, help="Number of genes in the system (default: 2).")
     parser.add_argument("--n_cells", type=int, default=5000, required=False, help="Number of cells in the system (default: 5000).")
