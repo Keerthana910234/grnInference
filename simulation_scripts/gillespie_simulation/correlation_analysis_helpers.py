@@ -59,12 +59,11 @@ import re
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-import seaborn as sns
-from matplotlib.patches import Rectangle
-from matplotlib.patches import FancyArrowPatch
+from matplotlib.patches import Rectangle, FancyArrowPatch
 from matplotlib.colors import Normalize, LinearSegmentedColormap
 from matplotlib.cm import ScalarMappable
 import networkx as nx
+import seaborn as sns
 
 def extract_param_index(filename: str) -> str:
     """
@@ -176,15 +175,6 @@ def dict_to_matrix(correlation_dict, gene_list):
         matrix.loc[g1, g2] = value
     return matrix
 
-import seaborn as sns
-import numpy as np
-import pandas as pd
-import matplotlib.pyplot as plt
-from matplotlib.patches import Rectangle
-
-from matplotlib.colors import LinearSegmentedColormap
-import matplotlib.pyplot as plt
-import numpy as np
 
 def make_reds_blues_colormap():
     reds = plt.cm.Reds(np.linspace(1, 0, 128))   # deep red → white
@@ -193,13 +183,6 @@ def make_reds_blues_colormap():
     return LinearSegmentedColormap.from_list('RedsBlues', colors)
 
 
-import seaborn as sns
-from matplotlib.patches import Rectangle
-import matplotlib.pyplot as plt
-
-import seaborn as sns
-from matplotlib.patches import Rectangle
-import matplotlib.pyplot as plt
 
 def plot_matrix_as_heatmap(corr_matrix, gene_list, no_regulation=None, potential_regulation=None, title=None, add_gene_labels=True,
                             add_time=False, time=None, gray_out_no_reg=False, vmin=None, vmax=None, cmap=None):
@@ -326,7 +309,9 @@ def plot_matrix_as_heatmap(corr_matrix, gene_list, no_regulation=None, potential
 
     if cmap is None and vmin < 0 and vmax > 0:
         cmap = make_reds_blues_colormap()
-        norm = TwoSlopeNorm(vmin=vmin, vcenter=0.0, vmax=vmax)
+        center_span = max(abs(vmin), abs(vmax))
+        norm = TwoSlopeNorm(vmin=-center_span, vcenter=0.0, vmax=center_span)
+
     else:
         norm = None
         if cmap is None:
@@ -348,7 +333,9 @@ def plot_matrix_as_heatmap(corr_matrix, gene_list, no_regulation=None, potential
         linecolor='lightgray',
         mask=mask
     )
-
+    if norm is not None:
+        cbar = heatmap.collections[0].colorbar
+        cbar.set_clim(vmin, vmax)  # display only actual data range on colorbar
 
 
     # --- Add regulation boxes ---
@@ -485,8 +472,6 @@ def plot_network(correlation_matrix, gene_list, title=None):
             
             if g1 == g2:
                 continue
-            print(correlation_matrix.columns.tolist())
-            print(g1, g2)
             val = correlation_matrix.loc[g1, g2]
             if pd.notna(val):
                 DG.add_edge(g1, g2, weight=val)

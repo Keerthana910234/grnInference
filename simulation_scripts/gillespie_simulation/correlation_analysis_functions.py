@@ -442,7 +442,7 @@ def get_directions_from_simulation(simulation_t1,
             if self_corr == 0 or pd.isna(self_corr):
                 norm_val = 0.0
             else:
-                norm_val = raw_val / self_corr
+                norm_val = raw_val / abs(self_corr)
             if raw_val == 0.0:  # If raw was zeroed by thresholding
                 norm_val = 0.0
             normalized_matrix.loc[g1, g2] = norm_val

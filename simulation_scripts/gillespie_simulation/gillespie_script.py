@@ -630,7 +630,7 @@ def process_param_set(rows, label, base_config):
     prefix = f"{label}_{timestamp}_ncells_{n_cells}_{base_config['type']}_{id}"
     df_rep.to_csv(f"{base_config['output_folder']}/df_{prefix}.csv", index=False)
     # np.savetxt(f"{base_config['output_folder']}/samples_{prefix}.csv", rep_samples.reshape(2*n_cells, -1), delimiter=",")
-    df_base.to_csv(f"{base_config['output_folder']}/test_df_{prefix}.csv", index=False)
+    # df_base.to_csv(f"{base_config['output_folder']}/test_df_{prefix}.csv", index=False)
     record = {
         "id": id,
         "rows": rows,
