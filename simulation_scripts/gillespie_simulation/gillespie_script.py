@@ -563,9 +563,9 @@ def process_param_set(rows, label, base_config):
     time_points    = np.arange(0, base_config['simulation_time_before_division'], 1)
     sample_twins_time_points    = np.arange(0, base_config['twin_simulation_time_after_division'] + base_config['twin_measurement_resolution'], base_config['twin_measurement_resolution']) 
     n_cells        = base_config['n_cells']
-
     # Build reactions and parameters for this row set
     n_genes, connectivity_matrix = read_input_matrix(path_to_connectivity_matrix)
+    assert len(rows) >= n_genes, "The number of parameter rows entered is less than the number of genes"
     reactions_df, gene_list = generate_reaction_network_from_matrix(connectivity_matrix)
     init_states = generate_initial_state_from_genes(gene_list)
     param_dict = assign_parameters_to_genes(param_csv, gene_list, rows)
@@ -630,7 +630,7 @@ def process_param_set(rows, label, base_config):
     prefix = f"{label}_{timestamp}_ncells_{n_cells}_{base_config['type']}_{id}"
     df_rep.to_csv(f"{base_config['output_folder']}/df_{prefix}.csv", index=False)
     # np.savetxt(f"{base_config['output_folder']}/samples_{prefix}.csv", rep_samples.reshape(2*n_cells, -1), delimiter=",")
-    # df_base.to_csv(f"{base_config['output_folder']}/test_df_{prefix}.csv", index=False)
+    df_base.to_csv(f"{base_config['output_folder']}/test_df_{prefix}.csv", index=False)
     record = {
         "id": id,
         "rows": rows,

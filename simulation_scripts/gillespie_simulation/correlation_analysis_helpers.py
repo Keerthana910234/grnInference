@@ -318,7 +318,7 @@ def plot_matrix_as_heatmap(corr_matrix, gene_list, no_regulation=None, potential
             cmap = "Blues" if vmin >= 0 else "Reds"
 
     fig, ax = plt.subplots(figsize=(8, 6))
-    sns.heatmap(
+    heatmap = sns.heatmap(
         plot_matrix,
         ax=ax,
         cmap=cmap,
@@ -335,7 +335,7 @@ def plot_matrix_as_heatmap(corr_matrix, gene_list, no_regulation=None, potential
     )
     if norm is not None:
         cbar = heatmap.collections[0].colorbar
-        cbar.set_clim(vmin, vmax)  # display only actual data range on colorbar
+        # cbar.set_clim(vmin, vmax)  # display only actual data range on colorbar
 
 
     # --- Add regulation boxes ---
@@ -467,14 +467,16 @@ def plot_network(correlation_matrix, gene_list, title=None):
         DG.add_node(gene)
 
     # Add all gene-gene interactions (even if directionless)
+    # Add all gene-gene interactions (only if both exist in correlation_matrix)
     for g1 in gene_list:
         for g2 in gene_list:
-            
             if g1 == g2:
                 continue
-            val = correlation_matrix.loc[g1, g2]
-            if pd.notna(val):
-                DG.add_edge(g1, g2, weight=val)
+            if g1 in correlation_matrix.index and g2 in correlation_matrix.columns:
+                val = correlation_matrix.loc[g1, g2]
+                if pd.notna(val):
+                    DG.add_edge(g1, g2, weight=val)
+
 
     # Define node positions and colors
     pos = polygon_layout(gene_list, radius=max(2, len(gene_list) / 2)) if len(gene_list) > 2 else {
@@ -483,7 +485,11 @@ def plot_network(correlation_matrix, gene_list, title=None):
     }
 
     fig, ax = plt.subplots(figsize=(9, 9))
-    node_colors = np.array([correlation_matrix.loc[g, g] if g in correlation_matrix.index else 0 for g in gene_list])
+    node_colors = np.array([
+    correlation_matrix.loc[g, g] if g in correlation_matrix.index and g in correlation_matrix.columns else 0
+    for g in gene_list
+    ])
+
     v = 1
     norm = Normalize(vmin=-v, vmax=v)
     cmap = make_reds_blues_colormap()
