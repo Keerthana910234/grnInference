@@ -1,0 +1,5 @@
+[deps]
+CSV = "336ed68f-0bac-5ca0-87d4-7b16caf5d00b"
+DataFrames = "a93c6f00-e57d-5684-b7b6-d8193f3e46c0"
+InformationMeasures = "96684042-fbdc-5399-9b8e-d34e539a126c"
+LightGraphs = "093fc24a-ae57-5d10-9952-331d41423f4d"
