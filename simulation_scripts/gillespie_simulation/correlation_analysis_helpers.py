@@ -97,45 +97,65 @@ def extract_param_index(filename: str) -> str:
     except Exception:
         return "unknown"
 
-def get_param_data(param_df, param_index):
+def get_param_data(param_df, param_index, n_genes):
     """
-    Extracts parameters used in a simulation and flattens them with labeled keys.
+    Extracts and flattens parameters for a given simulation from a parameter DataFrame.
+
+    This function:
+      1. Selects specific rows from `param_df` based on `param_index`.
+      2. Flattens gene-specific parameters so keys are labeled as `<term>_gene_<id>`.
+      3. Calculates degradation rates (`k_deg_mRNA_gene_X`, `k_deg_protein_gene_X`)
+         from the corresponding half-life values.
+      4. Adds interaction parameters (non-gene-specific) from the first selected row.
 
     Args:
-        param_df (pd.DataFrame): Parameter sheet with gene and interaction parameters.
-        param_index (str): String like '12_13' denoting which rows were used.
+        param_df (pd.DataFrame):
+            Parameter DataFrame containing both gene-level and interaction-level parameters.
+            Must contain columns for each gene term in `gene_terms` and optionally extra metadata.
+        param_index (str):
+            Underscore-separated string of row indices in `param_df` to use.
+            Example: "12_13" will select rows 12 and 13.
+        n_genes (int):
+            Number of genes expected in the simulation; must match the number of selected rows.
 
     Returns:
-        dict: Flat dictionary with keys like 'gene_1_p_on', 'gene_2_p_off', etc.,
-              and interaction terms left as-is.
+        dict:
+            A flat dictionary mapping parameter names to values, e.g.:
+            {
+                "k_on_gene_1": ...,
+                "k_off_gene_1": ...,
+                "mrna_half_life_gene_1": ...,
+                "k_deg_mRNA_gene_1": ...,
+                ...
+                "<interaction_param>": ...
+            }
+
+    Raises:
+        AssertionError:
+            If the number of selected rows does not match `n_genes`.
     """
     gene_terms = ["k_on", "k_off", "mrna_half_life", "protein_half_life", 
                   "k_prod_protein", "k_prod_mRNA"]
     extra_terms = ["pair_id", "gene_id"]
 
     rows = [int(i) for i in param_index.split("_")]
-    selected_rows = param_df.iloc[rows]
+    assert len(rows) == n_genes, "Mismatch in number of input genes and parameter rows"
 
+    selected_rows = param_df.iloc[rows]
     param_dict = {}
 
     # Gene-specific parameters
-    for _, row in selected_rows.iterrows():
-        gene_id = int(row["gene_id"])
+    for gene_id, row in enumerate(selected_rows.itertuples(index=False), start=1):
         for term in gene_terms:
             key = f"{term}_gene_{gene_id}"
-            param_dict[key] = row[term]
-        #add degradation terms from half_life
-        mRNA_deg_key = f"k_deg_mRNA_gene_{gene_id}"
-        mRNA_half_life_key = f"mrna_half_life_gene_{gene_id}"
-        param_dict[mRNA_deg_key] = np.log(2)/param_dict[mRNA_half_life_key]
-        protein_deg_key = f"k_deg_protein_gene_{gene_id}"
-        protein_half_life_key = f"protein_half_life_gene_{gene_id}"
-        param_dict[protein_deg_key] = np.log(2)/param_dict[protein_half_life_key]
-    # Interaction parameters (take from first row)
-    interaction_cols = [
-        col for col in param_df.columns 
-        if col not in gene_terms + extra_terms
-    ]
+            param_dict[key] = getattr(row, term)
+
+        # Add degradation terms from half_life
+        param_dict[f"k_deg_mRNA_gene_{gene_id}"] = np.log(2) / param_dict[f"mrna_half_life_gene_{gene_id}"]
+        param_dict[f"k_deg_protein_gene_{gene_id}"] = np.log(2) / param_dict[f"protein_half_life_gene_{gene_id}"]
+
+    # Interaction parameters (from first row)
+    interaction_cols = [col for col in param_df.columns if col not in gene_terms + extra_terms]
     interaction_values = param_df.loc[rows[0], interaction_cols]
     for col in interaction_cols:
         param_dict[col] = interaction_values[col]
@@ -516,14 +536,18 @@ def plot_network(correlation_matrix, gene_list, title=None):
         abs_weight = abs(raw_weight)
 
         if raw_weight > 0:
+            head_length = min(10 + abs_weight * 10, 20)
+            head_width = min(10 + abs_weight * 10, 20)
+            arrow_style = f'->,head_length={head_length},head_width={head_width}'
+
             # Positive correlation → activation (arrow)
             arrow = FancyArrowPatch(
                 start, end,
                 connectionstyle=f'arc3,rad={rad}',
-                arrowstyle='->, head_length=0.8, head_width=0.6',
-                mutation_scale=20 + abs_weight * 10,
+                arrowstyle=arrow_style,
+                mutation_scale=1,
                 color=color,
-                linewidth=max(abs_weight * 10, 1.0),
+                linewidth=min(abs_weight * 10, 5.0),
                 zorder=1
             )
             ax.add_patch(arrow)
@@ -532,7 +556,7 @@ def plot_network(correlation_matrix, gene_list, title=None):
             flat_t_head_arrow(
                 start, end,
                 color=color,
-                linewidth=max(abs_weight * 10, 1.0),
+                linewidth=min(abs_weight * 10, 5.0),
                 rad=rad,
                 abs_weight=abs_weight,
                 ax=ax

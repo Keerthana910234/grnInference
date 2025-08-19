@@ -1,7 +1,8 @@
 import numpy as np
 import pandas as pd
-from scipy.stats import spearmanr, linregress
-from correlation_analysis_helpers import dict_to_matrix
+from scipy.stats import spearmanr, linregress, pearsonr
+from .correlation_analysis_helpers import dict_to_matrix
+import matplotlib.pyplot as plt
 
 def steady_state_calc(param_dict, interaction_matrix, gene_list,
                                    sim_data, scale_k=None):
@@ -133,22 +134,64 @@ def calculate_pairwise_gene_gene_correlation_matrix(simulation_at_t1, gene_list)
     correlation_matrix = dict_to_matrix(correlations, gene_list)
     return correlation_matrix
 
-def check_gene_gene_correlation_threshold(pairwise_gene_gene_correlation_matrix, 
+def get_scrambled_correlations(df, gene_i, gene_j, n=10_000, p_val=0.05, method="spearman", seed=101010):
+    """
+    Returns (null_corrs, abs_threshold) for the unordered pair {gene_i, gene_j}.
+    abs_threshold is the (1 - p_val) quantile of |null_corrs| (two-sided).
+    """
+    # Data prep
+    x = df[f"{gene_i}_mRNA"].to_numpy()
+    y = df[f"{gene_j}_mRNA"].to_numpy()
+    mask = np.isfinite(x) & np.isfinite(y)
+    x, y = x[mask], y[mask]
+    
+    # Choose correlation function
+    if method == "spearman":
+        corr_func = lambda a, b: spearmanr(a, b)[0]  # returns (correlation, p-value)
+    elif method == "pearson":
+        corr_func = lambda a, b: pearsonr(a, b)[0]
+    else:
+        raise ValueError("method must be 'spearman' or 'pearson'")
+
+    rng = np.random.default_rng(seed)
+    n_obs = x.size
+    null_corrs = np.empty(n, dtype=float)
+    
+    for k in range(n):
+        perm = rng.permutation(n_obs)
+        null_corrs[k] = corr_func(x, y[perm])
+
+    # threshold
+    thr = np.quantile(np.abs(null_corrs), 1.0 - p_val)
+    return null_corrs, thr
+
+def check_gene_gene_correlation_threshold(all_t1_t2_measurements,
+                                          pairwise_gene_gene_correlation_matrix, 
                                           gene_list, 
-                                          threshold=0.04):
+                                          threshold=0.04,
+                                          use_scramble = True,
+                                          p_val_threshold = 0.01,
+                                          verbose=False):
     """
     Splits gene-gene pairs based on absolute correlation threshold.
 
     Parameters
     ----------
+    all_t1_t2_measurements : pd.DataFrame
+        The cell-gene dataframe containing sample information.
     pairwise_gene_gene_correlation_matrix : pd.DataFrame
         A square matrix of gene-gene correlations (gene × gene).
     gene_list : list of str
         List of gene names, must match the matrix row/column order.
     threshold : float, optional
         Correlation magnitude threshold to separate regulated vs unregulated.
+    use_scramble : bool, optional
+        If True, uses scrambled correlations for comparison.
+    p_val_threshold : float, optional
+        P-value threshold for significance testing.
     verbose : bool, optional
-        If True, prints gene pairs above the threshold.
+        If True, plots the null distribution and threshold for each gene pair.
+    
     Returns
     -------
     no_regulation : list of tuple
@@ -156,22 +199,42 @@ def check_gene_gene_correlation_threshold(pairwise_gene_gene_correlation_matrix,
 
     potential_regulation : list of tuple
         Gene pairs (i, j) where abs(correlation) > threshold.
+    
+    Note:
+    1. If both use_scrambled is True and threshold is provided, a new threshold is calculated 
+       based on the scrambled distribution and p_val_threshold.
     """
     no_regulation = []
     potential_regulation = []
-
     for i in range(len(gene_list)):
         for j in range(len(gene_list)):
-            if i == j:
+            if i >= j:
                 continue  # Skip diagonal
             corr_val = pairwise_gene_gene_correlation_matrix.values[i, j]
             pair = (gene_list[i], gene_list[j])
+            rev_pair = (gene_list[j], gene_list[i])
+            if use_scramble:
+                null_dist, threshold = get_scrambled_correlations(all_t1_t2_measurements, gene_list[i], gene_list[j], n=10_000, p_val=p_val_threshold)
+                p_value = np.mean(np.abs(null_dist) >= np.abs(corr_val))
+                if verbose:
+                    plt.figure(figsize=(6, 4))
+                    plt.hist(null_dist, bins=50, color="skyblue", alpha=0.7, edgecolor="k")
+                    plt.axvline(threshold, color="red", linestyle="--", label=f"+thr={threshold:.2e}")
+                    plt.axvline(-threshold, color="red", linestyle="--", label=f"-thr={threshold:.2e}")
+                    plt.axvline(corr_val, color="black", linestyle="-", label=f"actual={corr_val:.2e}")
+                    plt.title(f"Scrambled correlations: {gene_list[i]} vs {gene_list[j]}, p-val = {p_value:.2e}")
+                    plt.xlabel("Correlation")
+                    plt.ylabel("Count")
+                    plt.legend()
+                    plt.tight_layout()
+                    plt.show()
             if abs(corr_val) > threshold:
-                potential_regulation.append(pair)
+                    potential_regulation.append(pair)
+                    potential_regulation.append(rev_pair)
             else:
                 no_regulation.append(pair)
-
-    return no_regulation, potential_regulation
+                no_regulation.append(rev_pair)
+    return no_regulation, potential_regulation, threshold
 
 def calculate_pair_correlation(rep_0, rep_1, gene_list, type_comparison="twin"):
     """
@@ -199,10 +262,12 @@ def calculate_pair_correlation(rep_0, rep_1, gene_list, type_comparison="twin"):
         Dictionary of Spearman correlation values keyed as "gene1-gene2".
         Each value corresponds to correlation of Δgene1 vs Δgene2.
     """
-    rep_0 = rep_0.sort_values("clone_id").reset_index(drop=True)
-    rep_1 = rep_1.sort_values("clone_id").reset_index(drop=True)
+    rep_0 = rep_0.reset_index(drop=True)
+    rep_1 = rep_1.reset_index(drop=True)
 
     if type_comparison == "twin":
+        rep_0 = rep_0.sort_values("clone_id").reset_index(drop=True)
+        rep_1 = rep_1.sort_values("clone_id").reset_index(drop=True)
         if not rep_0["clone_id"].equals(rep_1["clone_id"]):
             raise ValueError("After sorting, clone_ids in rep_0 and rep_1 do not match.")
 
@@ -215,7 +280,7 @@ def calculate_pair_correlation(rep_0, rep_1, gene_list, type_comparison="twin"):
             correlations[f"{gene_1}-{gene_2}"] = corr
     return correlations
 
-def calculate_twin_random_pair_correlations(simulation_single_time, gene_list):
+def calculate_twin_random_pair_correlations(simulation_two_time, simulation_single_time, gene_list):
     """
     Computes twin and random pairwise correlation matrices at a given time point.
 
@@ -247,8 +312,10 @@ def calculate_twin_random_pair_correlations(simulation_single_time, gene_list):
     twin_correlation_matrix = dict_to_matrix(twin_correlation_dict, gene_list)
 
     # Calculate correlations using randomly shuffled pairs
-    rep_1_shuffled = rep_1.sample(frac=1, random_state=10100).reset_index(drop=True)
-    random_correlation_dict = calculate_pair_correlation(rep_0, rep_1_shuffled, gene_list, type_comparison="random")
+    random_rep_0 = simulation_two_time[simulation_two_time['replicate'] == 1]
+    random_rep_1 = simulation_two_time[simulation_two_time['replicate'] == 2]
+    random_rep_1_shuffled = random_rep_1.sample(frac=1, random_state=10100).reset_index(drop=True)
+    random_correlation_dict = calculate_pair_correlation(random_rep_0, random_rep_1_shuffled, gene_list, type_comparison="random")
     random_correlation_matrix = dict_to_matrix(random_correlation_dict, gene_list)
 
     return twin_correlation_matrix, random_correlation_matrix
@@ -355,8 +422,8 @@ def identify_reg_if_multiple_states(twin_correlation_matrix_t1, twin_correlation
 
     return multiple_states_no_reg, multiple_states_and_reg
 
-def get_directions_from_simulation(simulation_t1,
-                                   simulation_t2,
+def get_directions_from_simulation(rep_0_t1,
+                                   rep_1_t2,
                                    gene_pairs,
                                    type_comparison="twin",
                                    threshold=None,
@@ -367,11 +434,11 @@ def get_directions_from_simulation(simulation_t1,
 
     Parameters
     ----------
-    simulation_t1 : pd.DataFrame
-        Simulation data at time t1, with columns: 'replicate', 'clone_id', '{gene}_mRNA'.
+    rep0_t1 : pd.DataFrame
+        Simulation data at time t1 with one twin, with columns: 'replicate', 'clone_id', '{gene}_mRNA'.
 
-    simulation_t2 : pd.DataFrame
-        Simulation data at time t2, same structure as t1.
+    rep1_t2 : pd.DataFrame
+        Simulation data at time t2 with the other twin, same structure as t1.
 
     gene_pairs : list of tuple
         List of (gene_1, gene_2) pairs to analyze directionally.
@@ -397,24 +464,20 @@ def get_directions_from_simulation(simulation_t1,
     gene_list = sorted(set(g for pair in gene_pairs for g in pair))
 
     # Separate replicates for t1 and t2
-    rep_0_t1 = simulation_t1[simulation_t1["replicate"] == 1].sort_values("clone_id").reset_index(drop=True)
-    rep_1_t1 = simulation_t1[simulation_t1["replicate"] == 2].sort_values("clone_id").reset_index(drop=True)
-    rep_0_t2 = simulation_t2[simulation_t2["replicate"] == 1].sort_values("clone_id").reset_index(drop=True)
-    rep_1_t2 = simulation_t2[simulation_t2["replicate"] == 2].sort_values("clone_id").reset_index(drop=True)
+    rep_0_t1 = rep_0_t1.sort_values("clone_id").reset_index(drop=True)
+    rep_1_t2 = rep_1_t2.sort_values("clone_id").reset_index(drop=True)
+
 
     all_genes = list(set(gene_1 for gene_1, _ in gene_pairs) | set(gene_2 for _, gene_2 in gene_pairs))
     self_pairs = [(gene, gene) for gene in all_genes if (gene, gene) not in gene_pairs]
     gene_pairs += self_pairs
 
     if type_comparison == "twin":
-        for a, b, label in [
-            (rep_0_t1, rep_1_t1, "t1"),
-            (rep_0_t2, rep_1_t2, "t2"),
-            (rep_0_t1, rep_0_t2, "rep_0 across time"),
-            (rep_1_t1, rep_1_t2, "rep_1 across time")
-        ]:
-            if not a["clone_id"].equals(b["clone_id"]):
-                raise ValueError(f"Mismatch in clone_id for {label}")
+        if not rep_0_t1["clone_id"].equals(rep_1_t2["clone_id"]):
+                print("Clone IDs do not match between replicates:")
+                mismatched_ids = rep_1_t2[~rep_0_t1["clone_id"].isin(rep_0_t1["clone_id"])]
+                print(mismatched_ids["clone_id"].unique())
+                raise ValueError(f"Mismatch in clone_id")
 
     # Compute raw directional correlations
     raw_matrix = pd.DataFrame(index=gene_list, columns=gene_list, dtype=float)

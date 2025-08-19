@@ -137,14 +137,13 @@ def generate_reaction_network_from_matrix(connectivity_matrix: np.ndarray):
     }
 
     reactions = []
-    
     for j, curr_gene in enumerate(gene_list):
         param = lambda k: f"{{{k}_{curr_gene}}}"
         # activation
         expr = prop["activation"].replace("{k_on}", param("k_on")).replace("{curr_gene}", curr_gene)
         reactions.append({"species1":f"{curr_gene}_A","change1":1,
-                          "species2":f"{curr_gene}_I","change2":-1,
-                          "propensity":expr,"time":"-"})
+                        "species2":f"{curr_gene}_I","change2":-1,
+                        "propensity":expr,"time":"-"})
         # regulation
         regulators_index = np.where(connectivity_matrix[:,j]!=0)[0]
         for i in regulators_index:
@@ -159,13 +158,14 @@ def generate_reaction_network_from_matrix(connectivity_matrix: np.ndarray):
                 .replace("{tf}",regulator)\
                 .replace("{curr_gene}",curr_gene)
             reactions.append({"species1":f"{curr_gene}_A","change1":1,
-                              "species2":f"{curr_gene}_I","change2":-1,
-                              "propensity":expr,"time":"-"})
+                            "species2":f"{curr_gene}_I","change2":-1,
+                            "propensity":expr,"time":"-"})
+    
         # inactivation
         expr = prop["inactivation"].replace("{k_off}",param("k_off")).replace("{curr_gene}",curr_gene)
         reactions.append({"species1":f"{curr_gene}_I","change1":1,
-                          "species2":f"{curr_gene}_A","change2":-1,
-                          "propensity":expr,"time":"-"})
+                        "species2":f"{curr_gene}_A","change2":-1,
+                        "propensity":expr,"time":"-"})
         # production/degradation
         for label,suffix,chg in [
             ("mRNA_prod","mRNA",1),("mRNA_deg","mRNA",-1),
@@ -175,13 +175,13 @@ def generate_reaction_network_from_matrix(connectivity_matrix: np.ndarray):
             for k in ["k_prod_mRNA","k_deg_mRNA","k_prod_protein","k_deg_protein"]:
                 expr = expr.replace(f"{{{k}}}",param(k))
             reactions.append({"species1":f"{curr_gene}_{suffix}","change1":chg,
-                              "species2":"-","change2":"-",
-                              "propensity":expr,"time":"-"})
+                            "species2":"-","change2":"-",
+                            "propensity":expr,"time":"-"})
     df = pd.DataFrame(reactions)
     df['propensity'] = df['propensity'].astype(str)
     reactions_df = (
         df.groupby(['species1','change1','species2','change2','time'])['propensity']
-          .agg(lambda x: ' + '.join(x)).reset_index()
+        .agg(lambda x: ' + '.join(x)).reset_index()
     )
     return reactions_df, gene_list
 
@@ -261,24 +261,28 @@ def generate_k_from_steady_state_calc(param_dict, connectivity_matrix, gene_list
         k_deg_mRNA  = param_dict[f'{{k_deg_mRNA_{gene}}}']
         k_prod_prot = param_dict[f'{{k_prod_protein_{gene}}}']
         k_deg_prot  = param_dict[f'{{k_deg_protein_{gene}}}']
-        reg_eff = 0.0
         regs = np.where(connectivity_matrix[:,i]!=0)[0]
+
+        reg_eff = 0.0
         for r in regs:
             edge = f"{gene_list[r]}_to_{gene}"
             k_add = param_dict.get(f"{{k_add_{edge}}}", 0.0)
             sign = connectivity_matrix[r,i]
             reg_eff += target_hill * k_add * sign
-        k_on_eff = k_on + reg_eff
+            # print(f"  {edge} — sign: {sign}, k_add: {k_add}")
+        
+        k_on_eff = k_on + reg_eff  # or replace k_on completely if no basal allowed
+        # print(gene, k_on, reg_eff)
         burst_prob = k_on_eff/(k_on_eff+k_off)
         m = k_prod_mRNA * burst_prob / k_deg_mRNA
         protein_levels[i] = max(m * k_prod_prot / k_deg_prot, 0.1)
+    
     # assign k values
     for i, src in enumerate(gene_list):
         for j, tgt in enumerate(gene_list):
             if connectivity_matrix[i,j]!=0:
                 key = f"{{k_{src}_to_{tgt}}}"
                 param_dict[key] = protein_levels[i]*scale_k[i,j]
-    print(param_dict)
     return protein_levels, param_dict
 
 def add_interaction_terms(param_dict, connectivity_matrix, gene_list,
@@ -311,6 +315,7 @@ def add_interaction_terms(param_dict, connectivity_matrix, gene_list,
                 edge = f"{gene_list[i]}_to_{gene_list[j]}"
                 param_dict[f"{{n_{edge}}}"]     = float(n_matrix[i,j])
                 param_dict[f"{{k_add_{edge}}}"] = float(k_add_matrix[i,j])
+    # print(f"param_dict before steady state calc: {param_dict}")
     return generate_k_from_steady_state_calc(param_dict, connectivity_matrix, gene_list)
 
 def setup_gillespie_params_from_reactions(init_states: pd.DataFrame,
@@ -332,7 +337,7 @@ def setup_gillespie_params_from_reactions(init_states: pd.DataFrame,
             - pop0 (np.ndarray): Initial population counts as a NumPy array of integers.
             - update_matrix (np.ndarray): A matrix defining the changes in species counts for each reaction.
             - update_propensities (function): A compiled function for updating propensities using numba.
-            - species_index (dict): A dictionary mapping species names to their 
+            - species_index (dict): A dictionary mapping species names to their index 
     Raises:
         ValueError: If any placeholders in the propensity formulas are missing from the parameter dic
     Notes:
@@ -459,65 +464,177 @@ def gillespie_simulation_all_cells(update_propensities, update_matrix, pop0_mat,
 
 # %%
 # Check for steady state
+# def is_steady_state(samples, time_points, mean_tol=0.05, std_tol=0.05,
+#                     slope_tol=0.05, window_frac=0.1, verbose=False):
+#     """
+#     Check if the simulation has reached steady state.
+
+#     Args:
+#         samples (np.ndarray): Array of shape (n_cells, n_time, n_species)
+#         time_points (np.ndarray): Array of time values
+#         mean_tol (float): Max relative change in mean allowed
+#         std_tol (float): Max relative change in std allowed
+#         slope_tol (float): Max absolute slope allowed
+#         window_frac (float): Fraction of final time used to assess steady state
+#         verbose (bool): Whether to print detailed output
+
+#     Returns:
+#         bool: True if steady state is reached
+#     """
+#     n_cells, n_time, n_species = samples.shape
+#     window = int(n_time * window_frac)
+#     if window < 2:
+#         raise ValueError("Window too small for steady state check.")
+
+#     data = samples[:, -window:, :]  # shape: (n_cells, window, n_species)
+#     mean_traj = data.mean(axis=0)   # shape: (window, n_species)
+#     std_traj  = data.std(axis=0)    # shape: (window, n_species)
+
+#     # Mean & std relative change over last window
+#     rel_mean_change = np.abs(mean_traj[-1] - mean_traj[0]) / (mean_traj[0] + 1e-6)
+#     rel_std_change  = np.abs(std_traj[-1] - std_traj[0]) / (std_traj[0] + 1e-6)
+
+#     max_mean_change = rel_mean_change.max()
+#     max_std_change  = rel_std_change.max()
+
+#     steady_mean_std = max_mean_change < mean_tol and max_std_change < std_tol
+
+#     # Slope check
+#     times = time_points[-window:]
+#     slopes = np.zeros(n_species)
+#     for g in range(n_species):
+#         y = mean_traj[:, g]
+#         x = times
+#         A = np.vstack([x, np.ones_like(x)]).T
+#         m, _ = np.linalg.lstsq(A, y, rcond=None)[0]
+#         slopes[g] = m
+
+#     max_abs_slope = np.abs(slopes).max()
+#     steady_slope = max_abs_slope < slope_tol
+
+#     is_steady = steady_mean_std or steady_slope
+
+#     print(f"🧪 Steady-state check:")
+#     print(f"  ➤ Max relative mean change: {max_mean_change:.4e}")
+#     print(f"  ➤ Max relative std  change: {max_std_change:.4e}")
+#     print(f"  ➤ Max abs slope:             {max_abs_slope:.4e}")
+#     print(f"  ➤ Steady by mean/std:        {steady_mean_std}")
+#     print(f"  ➤ Steady by slope:           {steady_slope}")
+#     print(f"  ➤ Final decision:            {is_steady}")
+
+#     return is_steady
+
+import numpy as np
+
 def is_steady_state(samples, time_points, mean_tol=0.05, std_tol=0.05,
-                    slope_tol=0.05, window_frac=0.1, verbose=False):
+                    window_frac=0.1, param_dict=None, interaction_matrix=None,
+                    gene_list=None, verbose=True):
     """
-    Check if the simulation has reached steady state.
+    Check if simulation has reached steady state and matches
+    param-based steady_state_calc protein levels (per gene).
 
     Args:
-        samples (np.ndarray): Array of shape (n_cells, n_time, n_species)
-        time_points (np.ndarray): Array of time values
-        mean_tol (float): Max relative change in mean allowed
-        std_tol (float): Max relative change in std allowed
-        slope_tol (float): Max absolute slope allowed
-        window_frac (float): Fraction of final time used to assess steady state
-        verbose (bool): Whether to print detailed output
-
-    Returns:
-        bool: True if steady state is reached
+        samples (np.ndarray): Shape (n_cells, n_time, n_species)
+        time_points (np.ndarray): Time values
+        mean_tol, std_tol: Tolerances for mean/std change in last window
+        window_frac: Fraction of final time used to assess steady state
+        param_dict: dict with all kinetic + interaction params (already has k-values)
+        interaction_matrix: np.ndarray (n_genes, n_genes)
+        gene_list: ordered list of gene names
+        verbose: whether to print diagnostics
     """
+    def hill_fn(x, n, k):
+        x = np.asarray(x)
+        return x ** n / (x ** n + k ** n)
+
     n_cells, n_time, n_species = samples.shape
     window = int(n_time * window_frac)
     if window < 2:
         raise ValueError("Window too small for steady state check.")
 
-    data = samples[:, -window:, :]  # shape: (n_cells, window, n_species)
-    mean_traj = data.mean(axis=0)   # shape: (window, n_species)
-    std_traj  = data.std(axis=0)    # shape: (window, n_species)
+    # protein index: every 4th species, offset 3
+    protein_species_idx = np.arange(3, n_species, 4)
+    n_genes = len(gene_list)
 
-    # Mean & std relative change over last window
+    # --- Step 1: mean/std stability check ---
+    data = samples[:, -window:, :]
+    mean_traj = data.mean(axis=0)
+    std_traj  = data.std(axis=0)
+
     rel_mean_change = np.abs(mean_traj[-1] - mean_traj[0]) / (mean_traj[0] + 1e-6)
     rel_std_change  = np.abs(std_traj[-1] - std_traj[0]) / (std_traj[0] + 1e-6)
 
-    max_mean_change = rel_mean_change.max()
-    max_std_change  = rel_std_change.max()
+    steady_mean_std = (rel_mean_change.max() < mean_tol) and (rel_std_change.max() < std_tol)
 
-    steady_mean_std = max_mean_change < mean_tol and max_std_change < std_tol
+    # --- Step 2: compare expected vs simulated proteins at each t in last N steps ---
+    last_n = min(100, n_time)
+    rel_error_tp = []  # shape (last_n, n_genes)
 
-    # Slope check
-    times = time_points[-window:]
-    slopes = np.zeros(n_species)
-    for g in range(n_species):
-        y = mean_traj[:, g]
-        x = times
-        A = np.vstack([x, np.ones_like(x)]).T
-        m, _ = np.linalg.lstsq(A, y, rcond=None)[0]
-        slopes[g] = m
+    for t_idx in range(n_time - last_n, n_time):
+        # empirical mean protein levels per gene at this time point
+        mean_at_t_prot = samples[:, t_idx, protein_species_idx].mean(axis=0)
 
-    max_abs_slope = np.abs(slopes).max()
-    steady_slope = max_abs_slope < slope_tol
+        # expected protein levels per gene
+        protein_expected_gene_order = np.zeros(n_genes)
 
-    is_steady = steady_mean_std or steady_slope
+        # regulation uses per-cell protein values of regulators at this time point
+        proteins_at_t = samples[:, t_idx, protein_species_idx]  # shape (n_cells, n_genes)
 
-    print(f"🧪 Steady-state check:")
-    print(f"  ➤ Max relative mean change: {max_mean_change:.4e}")
-    print(f"  ➤ Max relative std  change: {max_std_change:.4e}")
-    print(f"  ➤ Max abs slope:             {max_abs_slope:.4e}")
-    print(f"  ➤ Steady by mean/std:        {steady_mean_std}")
-    print(f"  ➤ Steady by slope:           {steady_slope}")
-    print(f"  ➤ Final decision:            {is_steady}")
+        for i, gene in enumerate(gene_list):
+            p_on = param_dict[f'{{k_on_{gene}}}']
+            p_off = param_dict[f'{{k_off_{gene}}}']
+            p_prod_mRNA = param_dict[f'{{k_prod_mRNA_{gene}}}']
+            p_deg_mRNA = param_dict[f'{{k_deg_mRNA_{gene}}}']
+            p_prod_prot = param_dict[f'{{k_prod_protein_{gene}}}']
+            p_deg_prot = param_dict[f'{{k_deg_protein_{gene}}}']
 
-    return is_steady
+            reg_eff = 0.0
+            regulators = np.where(interaction_matrix[:, i] != 0)[0]
+            for r in regulators:
+                src_gene = gene_list[r]
+                edge = f"{src_gene}_to_{gene}"
+                p_add = param_dict.get(f"{{k_add_{edge}}}", 0.0)
+                n_val = param_dict.get(f"{{n_{edge}}}", 1.0)
+                k_val = param_dict.get(f"{{k_{edge}}}", 1.0)
+                sign = interaction_matrix[r, i]
+                x_vals = proteins_at_t[:, r]
+                hill_vals = hill_fn(x_vals, n_val, k_val)
+                reg_eff += p_add * hill_vals * sign
+
+            
+            p_on_eff = p_on + reg_eff
+            denom = np.where(p_on_eff + p_off <= 0, 1e-12, p_on_eff + p_off)
+            burst_prob = float(np.mean(p_on_eff / denom))
+            
+            m = p_prod_mRNA * burst_prob / max(p_deg_mRNA, 1e-12)
+            protein = max(m * p_prod_prot / max(p_deg_prot, 1e-12), 0.1)
+            protein_expected_gene_order[i] = protein
+
+        # per-gene relative error
+        rel_err = np.abs(mean_at_t_prot - protein_expected_gene_order) / (protein_expected_gene_order)
+        rel_error_tp.append(rel_err)
+
+    rel_error_tp = np.vstack(rel_error_tp)  # shape (last_n, n_genes)
+
+    # --- Step 3: per-gene success fraction ---
+    frac_within_1pct_per_gene = np.mean(rel_error_tp < 0.06, axis=0)
+    steady_match_per_gene = frac_within_1pct_per_gene >= 0.8
+    steady_match = bool(np.all(steady_match_per_gene))
+
+    # --- Verbose output ---
+    if verbose:
+        print("\n🧪 Steady-state check:")
+        print(f"  ➤ Max rel mean change over last {window} steps: {rel_mean_change.max():.4e}")
+        print(f"  ➤ Max rel std change  over last {window} steps: {rel_std_change.max():.4e}")
+        print(f"  ➤ Steady by param-based protein match: {steady_match}")
+        print(f"  ➤ Per-gene fraction of time points within 1% of expected protein:")
+        for gene, frac, passed in zip(gene_list, frac_within_1pct_per_gene, steady_match_per_gene):
+            status = "✅" if passed else "❌"
+            print(f"     {gene:>15}: {frac*100:6.2f}% ({status})")
+
+    return steady_match
+
+
 
 # %% Wrapping functions 
 
@@ -531,6 +648,7 @@ def run_simulation(update_propensities, update_matrix, pop0, time_points, n_cell
         pop0 (numpy.ndarray): Initial population vector for all species (shape: [n_species]).
         time_points (numpy.ndarray): Array of time points at which to sample the population.
         n_cells (int, optional): Number of cells to simulate. Defaults to 1000.
+        
 
     Returns:
         numpy.ndarray: A 3D array containing the simulated population data. 
@@ -550,8 +668,61 @@ def run_simulation(update_propensities, update_matrix, pop0, time_points, n_cell
             print(f"⚠️ WARNING: Cell {cell} got stuck (zero propensities).")
     return samples
 
+def divide_cells(parent_state, species_index, noisy_division=False, noise_percent = 0.01):
+    if not noisy_division:
+        return pd.concat([parent_state.T, parent_state], axis = 1)
+    else:
+
+    
+        # Transpose to get shape (num_genes, 6000) - genes as rows, cells as columns
+        parent_state_T = parent_state.T  # Shape: (num_genes, 6000)
+        
+        # Identify mRNA and protein species by name patterns
+        noisy_species_indices = []
+        for species_name, idx in species_index.items():
+            if 'mRNA' in species_name or 'protein' in species_name:
+                noisy_species_indices.append(idx)
+    
+        # Convert to numpy array for easier indexing
+        noisy_species_indices = np.array(noisy_species_indices)
+        
+        # Calculate std dev as 1% of the original value for mRNA/proteins only
+        diff_std = np.zeros_like(parent_state_T)
+        if len(noisy_species_indices) > 0:
+            diff_std[noisy_species_indices, :] = noise_percent * np.abs(parent_state_T[noisy_species_indices, :])
+            
+            # Generate Gaussian differences only for mRNA/proteins
+            differences = np.zeros_like(parent_state_T)
+            differences[noisy_species_indices, :] = np.random.normal(0, diff_std[noisy_species_indices, :])
+        else:
+            differences = np.zeros_like(parent_state_T)
+        
+        # Split with constraint that twin1 + twin2 = 2 * original
+        twin1 = parent_state_T + differences/2
+        twin2 = parent_state_T - differences/2
+        
+        # Round to integers for mRNA and proteins only
+        if len(noisy_species_indices) > 0:
+            twin1[noisy_species_indices, :] = np.round(twin1[noisy_species_indices, :])
+            twin2[noisy_species_indices, :] = np.round(twin2[noisy_species_indices, :])
+        
+        # Concatenate along columns (axis=1) to get 12000 cells
+        new_population = np.concatenate([twin1, twin2], axis=1)  # Shape: (num_genes, 12000)
+        return new_population
+    
 # --- Worker for a single parameter set ---
 def process_param_set(rows, label, base_config):
+    """
+    Processes a set of parameters for a Gillespie simulation, running the simulation for a specified number of cells and handling the results.
+    Parameters:
+        rows (list): A list of parameter rows to be processed.
+        label (str): A label for identifying the simulation run.
+        base_config (dict): A dictionary containing common parameters such as paths, connectivity matrix, and simulation settings.
+    Returns:
+        str: The file path of the saved DataFrame containing the results of the simulation.
+    Raises:
+        AssertionError: If the number of parameter rows is less than the number of genes.
+    """
     # base_config contains common parameters: paths, k_add_matrix, n_matrix, time_points
     # set_num_threads(6)
     print(f"[Worker {label}] Using {get_num_threads()} threads for rows={rows}\n")
@@ -567,6 +738,7 @@ def process_param_set(rows, label, base_config):
     n_genes, connectivity_matrix = read_input_matrix(path_to_connectivity_matrix)
     assert len(rows) >= n_genes, "The number of parameter rows entered is less than the number of genes"
     reactions_df, gene_list = generate_reaction_network_from_matrix(connectivity_matrix)
+    # display(reactions_df)
     init_states = generate_initial_state_from_genes(gene_list)
     param_dict = assign_parameters_to_genes(param_csv, gene_list, rows)
     n_matrix = np.zeros((n_genes, n_genes))
@@ -579,16 +751,24 @@ def process_param_set(rows, label, base_config):
                 n_matrix[i,j]     = param_dict.get(f"{{n_{edge}}}", 2.0)
                 k_add_matrix[i,j] = param_dict.get(f"{{k_add_{edge}}}", 6.0)
     print("Done until addition of interaction terms")
+    noisy_division = base_config.get('noisy_division', False)
+    if noisy_division:
+        noise_percent =  base_config.get('noisy_division', 0.01)
+    else:
+        noise_percent = 0
+
     steady_state, full_param_dict = add_interaction_terms(param_dict, connectivity_matrix, gene_list,
                                                           n_matrix=n_matrix,
                                                           k_add_matrix=k_add_matrix)
+    print(full_param_dict)
 
     pop0, update_matrix, update_prop, species_index = setup_gillespie_params_from_reactions(
         init_states, reactions_df, full_param_dict)
     print("Starting base simulation")
     # 1) Run base simulation
     base_samples = run_simulation(update_prop, update_matrix, pop0, time_points, n_cells)
-    if not is_steady_state(base_samples, time_points):
+
+    if not is_steady_state(samples = base_samples, time_points =  time_points, param_dict = full_param_dict, interaction_matrix = connectivity_matrix, gene_list = gene_list):
         print(f"⚠️ Base simulation (basal) for {label} not steady.")
         # Log the issue in a separate file
         error_record = {
@@ -611,7 +791,9 @@ def process_param_set(rows, label, base_config):
     del base_samples
     gc.collect()
     rep_time = sample_twins_time_points
-    pop0_rep = np.concatenate([final_states.T, final_states.T], axis=1)
+
+    pop0_rep = divide_cells(final_states, species_index = species_index, noisy_division=noisy_division, noise_percent = noise_percent)
+
     rep_samples = gillespie_simulation_all_cells(update_prop, update_matrix, pop0_rep, rep_time, np.zeros(2*n_cells, dtype=np.int64))
     
     # 3) Extract from simulation and label
@@ -682,7 +864,6 @@ if __name__ == "__main__":
         "number_of_cores_per_parameter": 8 #Number of cores to be used per parameter (number_of_parallel_parameters * number_of_cores_per_parameter = number of cores in your computer)
     }
 
-
     # Parse command-line arguments
     parser = argparse.ArgumentParser(description="Run Gillespie simulation with specified inputs.")
     parser.add_argument("--path_to_connectivity_matrix", type=str, required=True, help="Path to the connectivity matrix file specifying the GRN to simulate.")
@@ -692,11 +873,10 @@ if __name__ == "__main__":
     parser.add_argument("--log_file", type=str , required=True, help="Json file to save log.")
     parser.add_argument("--type", type=str , required=True, help="Name of the network used -- will be in the filename.")
     parser.add_argument("--number_parallel_processes", type=int, default=1, required=False, help="Number of parallel parameter sets to be run at once (default: 1).")
-    parser.add_argument("--n_genes", type=int, default=2, required=False, help="Number of genes in the system (default: 2).")
     parser.add_argument("--n_cells", type=int, default=5000, required=False, help="Number of cells in the system (default: 5000).")
-    parser.add_argument("--steady_state_time", type=int, default=2500, required=False, help="Number of hours to run to achieve steady state (default: 250h0).")
-    parser.add_argument("--twin_sampling_duration", type=int, default=48, required=False, help="Number of hours to run after cell division for collecting twin data (default: 48h).")
-    parser.add_argument("--twin_sampling_frequency", type=int, default=1, required=False, help="The time duration between every twin measurement (default: 1). For example, if it is 1h, then, data is stored eevry hour.")
+    parser.add_argument("--simulation_time_before_division", type=int, default=2500, required=False, help="Number of hours to run to achieve steady state (default: 250h0).")
+    parser.add_argument("--twin_simulation_time_after_division", type=int, default=48, required=False, help="Number of hours to run after cell division for collecting twin data (default: 48h).")
+    parser.add_argument("--twin_measurement_resolution", type=int, default=1, required=False, help="The time duration between every twin measurement (default: 1). For example, if it is 1h, then, data is stored eevry hour.")
     args = parser.parse_args()
 
     # # Update base configuration with parsed arguments
@@ -748,7 +928,7 @@ if __name__ == "__main__":
     param_sets = list(zip(row_list, labels))
     print(len(param_sets))
     # Use 32 cores split into 4 workers (8 threads each)
-    with concurrent.futures.ProcessPoolExecutor(max_workers=1) as executor:
+    with concurrent.futures.ProcessPoolExecutor(max_workers=4) as executor:
         futures = [executor.submit(process_param_set, rows, label, base_config)
                    for rows, label in param_sets]
         for fut in tqdm(concurrent.futures.as_completed(futures), total=len(futures), desc="Param sets"):  

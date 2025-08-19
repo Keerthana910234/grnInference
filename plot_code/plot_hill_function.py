@@ -37,9 +37,9 @@ import matplotlib.pyplot as plt
 def calc_pi_on(k_on, k_off):
     return k_on / (k_on + k_off)
 
-k_on_range = [0.01]
-pi_on_no_reg = np.linspace(0.002, 0.4, 10)
-regulator_range = np.linspace(0.0, 10, 100)  # smoother curves
+k_on_range = [0.1]
+pi_on_no_reg = np.linspace(0.002, 0.1, 100)
+regulator_range = np.linspace(0.0, 20, 100)  # smoother curves
 
 for k_on in k_on_range:
     plt.figure(figsize=(10, 8))  # new figure for each k_on
@@ -50,7 +50,7 @@ for k_on in k_on_range:
         plt.plot(regulator_range, eff_pi_on/pi_on, linewidth=1.0,
                  label=f'π_on₀ = {pi_on:.2f}')
     
-    plt.legend(loc='upper right', fontsize=6, frameon=False)
+    # plt.legend(loc='upper right', fontsize=6, frameon=False)
     plt.xlabel('Regulator concentration')
     plt.ylabel(r'Ratio of Effective $\pi_{on}$ to $\pi_{on0}$')
     plt.title(rf'Ratio of Effective $\pi_{{on}}$ to $\pi_{{on_0}}$ vs Regulator (k_on = {k_on:.2f})')
