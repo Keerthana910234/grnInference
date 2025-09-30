@@ -1,0 +1,35 @@
+# Ignore specific file formats globally
+**.log*
+*.npy
+*.log
+*.nbi
+*.zst
+*.pkl
+*.pkl.zst
+*.gz*
+*.html
+*.err
+*.out
+# Ignore all directories that are git repositories
+**/.git/
+
+# Ignore directories and their contents
+**/__pycache__/
+.conda/*
+# Ignore specific file patterns
+.nbc
+*.js
+*.rds
+*.npy
+/__pycache__/
+*.nbi
+*.zst
+*.gml
+*.pkl
+*.pkl.zst
+*.html
+.nbc
+**core.**
+.Rprofile
+.Rhistory
+.Rproj.user
